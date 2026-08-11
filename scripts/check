@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+"$(dirname "$0")/test"
+"$(dirname "$0")/lint"
+"$(dirname "$0")/typecheck"
+"$(dirname "$0")/build"

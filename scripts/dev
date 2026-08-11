@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -n "${DEV_COMMAND:-}" ]]; then
+  exec bash -lc "$DEV_COMMAND"
+fi
+
+if [[ -f package.json ]]; then
+  if node -e "const p=require('./package.json'); process.exit((p.scripts&&p.scripts.dev)?0:1)"; then
+    exec npm run dev
+  fi
+fi
+
+if [[ -f Cargo.toml ]]; then
+  exec cargo run
+fi
+
+if [[ -f pyproject.toml || -f requirements.txt ]]; then
+  echo "Unable to determine development command."
+  echo "Define DEV_COMMAND in .env.local."
+  exit 1
+fi
+
+echo "Unable to determine development command."
+echo "Define DEV_COMMAND in .env.local."
+exit 1
