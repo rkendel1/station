@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# GPU Worker Shutdown
+# Safely stops the running GPU worker on RunPod
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Configuration
+POD_ID="${RUNPOD_POD_ID:-}"
+API_KEY="${RUNPOD_API_KEY:-}"
+
+if [[ -z "$POD_ID" ]]; then
+    echo "Error: RUNPOD_POD_ID not set"
+    echo ""
+    echo "To stop the GPU worker, set:"
+    echo "  export RUNPOD_POD_ID=your-pod-id"
+    echo "  export RUNPOD_API_KEY=your-api-key"
+    echo ""
+    echo "Then run: ./scripts/gpu-stop"
+    exit 1
+fi
+
+if [[ -z "$API_KEY" ]]; then
+    echo "Error: RUNPOD_API_KEY not set"
+    echo ""
+    echo "Set your RunPod API key:"
+    echo "  export RUNPOD_API_KEY=your-api-key"
+    echo ""
+    exit 1
+fi
+
+echo "GPU Worker Shutdown"
+echo "=================="
+echo "Pod ID: $POD_ID"
+echo ""
+
+# Call RunPod API to terminate the pod
+echo "Sending terminate request to RunPod..."
+RESPONSE=$(curl -s -X POST "https://api.runpod.io/graphql" \
+    -H "Content-Type: application/json" \
+    -H "api_key: $API_KEY" \
+    -d '{
+        "query": "mutation { podStop(input: { podId: \"'"$POD_ID"'\" }) { id } }"
+    }' 2>/dev/null || echo "{}")
+
+if echo "$RESPONSE" | grep -q '"id"'; then
+    echo "✓ Terminate request sent successfully"
+    echo ""
+    echo "Pod will be terminated shortly."
+    echo "Charges will stop when pod completes shutdown."
+    echo ""
+    echo "Verification:"
+    echo "  Check pod status at https://console.runpod.io"
+    echo "  Or run: RUNPOD_POD_ID=$POD_ID ./scripts/gpu-status"
+    echo ""
+else
+    if echo "$RESPONSE" | grep -q '"errors"'; then
+        echo "✗ RunPod API error:"
+        echo "$RESPONSE" | grep -o '"message":"[^"]*' | cut -d'"' -f4 || true
+        echo ""
+    else
+        echo "⚠ Unable to verify response"
+        echo "Check manually at https://console.runpod.io"
+        echo ""
+    fi
+    exit 1
+fi
+
+echo "GPU Worker stopped."

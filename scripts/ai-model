@@ -1,0 +1,281 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# AI Model Selection
+# Easily switch between Qwen3 (local GPU) and Frontier (API) models
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Configuration files
+ENV_LOCAL="${REPO_ROOT}/.env.local"
+ENV_FILE="${REPO_ROOT}/.env"
+
+# Available models
+declare -A MODELS=(
+    [qwen]="Qwen3-Coder-30B"
+    [frontier]="GPT-4 Turbo"
+    [claude]="Claude-3 Opus"
+)
+
+print_usage() {
+    cat << EOF
+ai-model — Configure AI model for development
+
+Usage:
+  ./scripts/ai-model [COMMAND]
+
+Commands:
+  qwen           Use Qwen3-Coder-30B (local GPU, cheapest)
+  frontier       Use GPT-4 Turbo (OpenAI API, best quality)
+  claude         Use Claude-3 Opus (Anthropic API)
+  status         Show current model configuration
+  list           Show available models
+  help           Show this help
+
+Examples:
+  # Use Qwen3 on local GPU
+  ./scripts/ai-model qwen
+
+  # Use frontier model (API)
+  ./scripts/ai-model frontier
+
+  # Check current config
+  ./scripts/ai-model status
+
+About:
+  Qwen3 is optimized for:
+    ✓ Implementation tasks
+    ✓ Refactoring
+    ✓ Test generation
+    ✓ Debugging
+    ✗ Complex architecture decisions
+
+  Frontier models are optimized for:
+    ✓ Complex architecture
+    ✓ Novel problems
+    ✓ High-stakes decisions
+    ✓ Fallback when Qwen stuck
+    ✗ Routine coding (expensive)
+
+EOF
+}
+
+print_status() {
+    echo "Current AI Model Configuration"
+    echo "=============================="
+    echo ""
+    
+    if [[ -z "${AI_MODEL:-}" ]]; then
+        echo "⚠ AI_MODEL not configured"
+    else
+        echo "Model: $AI_MODEL"
+    fi
+    
+    if [[ -z "${AI_BASE_URL:-}" ]]; then
+        echo "⚠ AI_BASE_URL not configured"
+    else
+        echo "Base URL: $AI_BASE_URL"
+    fi
+    
+    if [[ -z "${AI_API_KEY:-}" ]]; then
+        echo "⚠ AI_API_KEY not configured (required for authenticated endpoints)"
+    else
+        echo "API Key: (****** configured)"
+    fi
+    
+    echo ""
+    
+    # Test connectivity
+    if [[ -n "${AI_BASE_URL:-}" ]]; then
+        echo -n "Testing connectivity... "
+        if curl -sf "${AI_BASE_URL}/health" > /dev/null 2>&1; then
+            echo "✓ Connected"
+            
+            # Get more details if API key is set
+            if [[ -n "${AI_API_KEY:-}" ]]; then
+                DIAG=$(curl -s "${AI_BASE_URL}/diagnostics" \
+                    -H "Authorization: ******" 2>/dev/null || echo "{}")
+                
+                if echo "$DIAG" | grep -q '"uptime_seconds"'; then
+                    UPTIME=$(echo "$DIAG" | grep -o '"uptime_seconds":[0-9]*' | cut -d: -f2)
+                    echo "  Uptime: ${UPTIME}s"
+                fi
+            fi
+        else
+            echo "✗ Cannot reach endpoint"
+        fi
+    fi
+    
+    echo ""
+}
+
+list_models() {
+    echo "Available AI Models"
+    echo "==================="
+    echo ""
+    echo "Qwen3-Coder-30B (Local GPU)"
+    echo "  Cost: ~$0.02-0.03 per task"
+    echo "  Speed: Fast (H100)"
+    echo "  Quality: Good for most tasks"
+    echo "  Setup: Requires RunPod GPU"
+    echo ""
+    echo "GPT-4 Turbo (OpenAI API)"
+    echo "  Cost: ~$0.15 per successful task"
+    echo "  Speed: API latency"
+    echo "  Quality: Best available"
+    echo "  Setup: OpenAI API key required"
+    echo ""
+    echo "Claude-3 Opus (Anthropic API)"
+    echo "  Cost: ~$0.12 per successful task"
+    echo "  Speed: API latency"
+    echo "  Quality: Very good"
+    echo "  Setup: Anthropic API key required"
+    echo ""
+}
+
+configure_qwen() {
+    echo "Configuring Qwen3-Coder-30B"
+    echo "============================"
+    echo ""
+    
+    # Check if we have the environment variables
+    if [[ -z "${RUNPOD_POD_ID:-}" ]]; then
+        echo "Error: RUNPOD_POD_ID not set"
+        echo ""
+        echo "To use Qwen3, you need a running RunPod GPU worker:"
+        echo "  1. Start a GPU worker: ./scripts/gpu-start"
+        echo "  2. Set the pod ID: export RUNPOD_POD_ID=your-pod-id"
+        echo "  3. Configure API key: export AI_API_KEY=your-worker-token"
+        echo "  4. Then: ./scripts/ai-model qwen"
+        exit 1
+    fi
+    
+    # Build the URL
+    POD_ID="${RUNPOD_POD_ID}"
+    BASE_URL="https://${POD_ID}.runpod.net/v1"
+    
+    # Write configuration
+    echo "export AI_PROVIDER=openai-compatible" > "$ENV_LOCAL"
+    echo "export AI_BASE_URL=$BASE_URL" >> "$ENV_LOCAL"
+    echo "export AI_MODEL=Qwen3-Coder-30B" >> "$ENV_LOCAL"
+    echo "export AI_API_KEY=\${RUNPOD_WORKER_KEY:-}" >> "$ENV_LOCAL"
+    
+    chmod 600 "$ENV_LOCAL"
+    
+    # Load configuration
+    source "$ENV_LOCAL"
+    export AI_PROVIDER="openai-compatible"
+    export AI_BASE_URL="$BASE_URL"
+    export AI_MODEL="Qwen3-Coder-30B"
+    
+    echo "✓ Configuration saved to $ENV_LOCAL"
+    echo ""
+    echo "Qwen3 is now configured:"
+    echo "  Base URL: $AI_BASE_URL"
+    echo "  Model: $AI_MODEL"
+    echo ""
+    echo "Verify:"
+    echo "  ./scripts/gpu-status"
+    echo ""
+}
+
+configure_frontier() {
+    echo "Configuring GPT-4 Turbo"
+    echo "======================="
+    echo ""
+    
+    if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+        echo "Error: OPENAI_API_KEY not set"
+        echo ""
+        echo "To use frontier models, set your OpenAI API key:"
+        echo "  export OPENAI_API_KEY=sk-..."
+        echo "  ./scripts/ai-model frontier"
+        exit 1
+    fi
+    
+    echo "export AI_PROVIDER=openai" > "$ENV_LOCAL"
+    echo "export AI_MODEL=gpt-4-turbo-preview" >> "$ENV_LOCAL"
+    echo "export AI_API_KEY=\${OPENAI_API_KEY:-}" >> "$ENV_LOCAL"
+    
+    chmod 600 "$ENV_LOCAL"
+    
+    # Load configuration
+    source "$ENV_LOCAL"
+    export AI_PROVIDER="openai"
+    export AI_MODEL="gpt-4-turbo-preview"
+    
+    echo "✓ Configuration saved to $ENV_LOCAL"
+    echo ""
+    echo "Frontier (GPT-4 Turbo) is now configured:"
+    echo "  Provider: OpenAI"
+    echo "  Model: gpt-4-turbo-preview"
+    echo ""
+    echo "Warning: This model is expensive!"
+    echo "  Use Qwen3 for routine tasks"
+    echo "  Use GPT-4 only when needed"
+    echo ""
+}
+
+configure_claude() {
+    echo "Configuring Claude-3 Opus"
+    echo "========================="
+    echo ""
+    
+    if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+        echo "Error: ANTHROPIC_API_KEY not set"
+        echo ""
+        echo "To use Claude, set your Anthropic API key:"
+        echo "  export ANTHROPIC_API_KEY=sk-ant-..."
+        echo "  ./scripts/ai-model claude"
+        exit 1
+    fi
+    
+    echo "export AI_PROVIDER=anthropic" > "$ENV_LOCAL"
+    echo "export AI_MODEL=claude-3-opus-20240229" >> "$ENV_LOCAL"
+    echo "export AI_API_KEY=\${ANTHROPIC_API_KEY:-}" >> "$ENV_LOCAL"
+    
+    chmod 600 "$ENV_LOCAL"
+    
+    # Load configuration
+    source "$ENV_LOCAL"
+    export AI_PROVIDER="anthropic"
+    export AI_MODEL="claude-3-opus-20240229"
+    
+    echo "✓ Configuration saved to $ENV_LOCAL"
+    echo ""
+    echo "Claude-3 Opus is now configured:"
+    echo "  Provider: Anthropic"
+    echo "  Model: claude-3-opus-20240229"
+    echo ""
+}
+
+# Main script
+COMMAND="${1:-status}"
+
+case "$COMMAND" in
+    qwen)
+        configure_qwen
+        ;;
+    frontier)
+        configure_frontier
+        ;;
+    claude)
+        configure_claude
+        ;;
+    status)
+        print_status
+        ;;
+    list)
+        list_models
+        ;;
+    help|--help|-h)
+        print_usage
+        ;;
+    *)
+        echo "Unknown command: $COMMAND"
+        echo ""
+        print_usage
+        exit 1
+        ;;
+esac
