@@ -2,7 +2,7 @@
 
 ## Start
 
-Open the repository in GitHub Codespaces.
+Open the repository in GitHub Codespaces. You can connect through the browser, VS Code, or GitHub CLI.
 
 ## Development
 

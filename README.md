@@ -19,3 +19,16 @@ Open this repository in Codespaces and start building.
 ## Use as a template
 
 In GitHub repository settings, enable **Template repository** to make this reusable for new projects.
+
+
+## Codex (primary AI agent)
+
+Run:
+
+```bash
+codex
+```
+
+Authenticate at runtime using the Codex-supported login flow. Do not bake API keys into the image or repository.
+
+Default usage should remain approval-oriented (Suggest mode). Configure more autonomous modes only when explicitly needed.
