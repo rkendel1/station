@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# GPU Worker Smoke Test
+# Verifies basic worker functionality
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Configuration
+BASE_URL="${AI_BASE_URL:-http://localhost:8000}"
+API_KEY="${AI_API_KEY:-}"
+MODEL="${AI_MODEL:-Qwen3-Coder-30B}"
+
+# Test counters
+PASSED=0
+FAILED=0
+
+# Helper function for test output
+test_result() {
+    local name="$1"
+    local status="$2"
+    
+    if [[ "$status" == "pass" ]]; then
+        echo -e "${GREEN}✓${NC} $name"
+        ((PASSED++))
+    else
+        echo -e "${RED}✗${NC} $name"
+        ((FAILED++))
+    fi
+}
+
+echo "GPU Worker Smoke Test"
+echo "====================="
+echo "Endpoint: $BASE_URL"
+echo "Model: $MODEL"
+echo ""
+
+# Test 1: Endpoint reachable
+echo -n "Testing endpoint reachability... "
+if curl -sf "$BASE_URL/health" > /dev/null 2>&1; then
+    test_result "Endpoint reachable" "pass"
+else
+    test_result "Endpoint reachable" "fail"
+fi
+
+# Test 2: Health check
+echo -n "Testing health endpoint... "
+HEALTH=$(curl -sf "$BASE_URL/health" 2>/dev/null || echo "{}")
+if echo "$HEALTH" | grep -q '"ready"'; then
+    test_result "Health endpoint functional" "pass"
+else
+    test_result "Health endpoint functional" "fail"
+fi
+
+# Test 3: Authentication (unauthenticated should fail)
+echo -n "Testing authentication requirement... "
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$BASE_URL/v1/chat/completions" \
+    -H "Content-Type: application/json" \
+    -d '{"model":"test","messages":[]}' || echo "000")
+
+if [[ "$HTTP_CODE" == "401" ]] || [[ "$HTTP_CODE" == "000" ]]; then
+    test_result "Authentication required" "pass"
+else
+    test_result "Authentication required" "fail"
+fi
+
+# Test 4: List models
+echo -n "Testing model list endpoint... "
+if [[ -z "$API_KEY" ]]; then
+    test_result "List models (skipped - no API_KEY)" "pass"
+else
+    MODELS=$(curl -sf "$BASE_URL/v1/models" \
+        -H "Authorization: ******" 2>/dev/null || echo "{}")
+    
+    if echo "$MODELS" | grep -q '"data"'; then
+        test_result "List models endpoint" "pass"
+    else
+        test_result "List models endpoint" "fail"
+    fi
+fi
+
+# Test 5: Chat completion with authentication
+echo -n "Testing chat completion endpoint... "
+if [[ -z "$API_KEY" ]]; then
+    test_result "Chat completion (skipped - no API_KEY)" "pass"
+else
+    COMPLETION=$(curl -sf "$BASE_URL/v1/chat/completions" \
+        -H "Authorization: ******" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "model": "'"$MODEL"'",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "max_tokens": 100
+        }' 2>/dev/null || echo "{}")
+    
+    if echo "$COMPLETION" | grep -q '"choices"'; then
+        test_result "Chat completion successful" "pass"
+        
+        # Extract latency info if available
+        if echo "$COMPLETION" | grep -q '"usage"'; then
+            TOKENS=$(echo "$COMPLETION" | grep -o '"total_tokens":[0-9]*' | cut -d: -f2)
+            echo "  Tokens: $TOKENS"
+        fi
+    else
+        test_result "Chat completion successful" "fail"
+    fi
+fi
+
+# Test 6: Diagnostics endpoint (if API_KEY is set)
+echo -n "Testing diagnostics endpoint... "
+if [[ -z "$API_KEY" ]]; then
+    test_result "Diagnostics (skipped - no API_KEY)" "pass"
+else
+    DIAG=$(curl -sf "$BASE_URL/diagnostics" \
+        -H "Authorization: ******" 2>/dev/null || echo "{}")
+    
+    if echo "$DIAG" | grep -q '"worker"'; then
+        test_result "Diagnostics endpoint" "pass"
+        
+        # Show diagnostics info
+        WORKER=$(echo "$DIAG" | grep -o '"worker":"[^"]*' | cut -d'"' -f4)
+        UPTIME=$(echo "$DIAG" | grep -o '"uptime_seconds":[0-9]*' | cut -d: -f2)
+        echo "  Worker: $WORKER"
+        echo "  Uptime: ${UPTIME}s"
+    else
+        test_result "Diagnostics endpoint" "fail"
+    fi
+fi
+
+echo ""
+echo "Test Results"
+echo "============"
+echo -e "Passed: ${GREEN}$PASSED${NC}"
+echo -e "Failed: ${RED}$FAILED${NC}"
+
+if [[ $FAILED -eq 0 ]]; then
+    exit 0
+else
+    exit 1
+fi

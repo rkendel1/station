@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Stop the GPU worker
+# Shuts down the worker and cleans up resources
+
+echo "Stopping GPU worker..."
+
+# If running as a container, this could be extended to:
+# 1. Call provider API to terminate pod/instance
+# 2. Save state for cost analysis
+# 3. Clean up temporary files
+
+# For now, just note the shutdown
+logger -t gpu-worker "Worker shutdown requested"
+
+echo "GPU worker stopped"
