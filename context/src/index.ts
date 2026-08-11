@@ -8,3 +8,6 @@ export * from "./db/schema.js";
 export * from "./db/store.js";
 export * from "./db/factory.js";
 export * from "./utils/env.js";
+
+// PR7: Workspace module
+export * from "./workspace/index.js";

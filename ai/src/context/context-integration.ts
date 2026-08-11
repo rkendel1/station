@@ -1,9 +1,18 @@
 /**
  * Context integration for the AI control plane
  * Uses the ContextStore abstraction to retrieve engineering context
+ * PR7: Enhanced with live workspace context
  */
 
-import { ContextStore, Repository, Capability, File } from "@station/context";
+import {
+  ContextStore,
+  Repository,
+  Capability,
+  File,
+  WorktreeDiff,
+  ImpactAssessment,
+  FreshnessStatus,
+} from "@station/context";
 
 export interface RelevantContext {
   repositories: Repository[];
@@ -11,6 +20,24 @@ export interface RelevantContext {
   capabilities: Capability[];
   technologiesUsed: string[];
   architecturePatterns: string[];
+  // PR7: Enhanced context fields
+  currentBranch?: string;
+  currentCommit?: string;
+  worktreeDiff?: WorktreeDiff;
+  affectedSymbols?: string[];
+  affectedTests?: string[];
+  impactAssessment?: ImpactAssessment;
+  freshnessStatus?: FreshnessStatus;
+}
+
+/**
+ * PR7: Git state for context
+ */
+export interface GitContextState {
+  branch: string;
+  commit: string;
+  isDirty: boolean;
+  changedFiles: string[];
 }
 
 export class ContextIntegration {
@@ -48,6 +75,74 @@ export class ContextIntegration {
       capabilities,
       technologiesUsed,
       architecturePatterns,
+    };
+  }
+
+  /**
+   * PR7: Retrieve context with live workspace state
+   */
+  async retrieveContextWithWorkspaceState(
+    taskDescription: string,
+    gitState?: GitContextState
+  ): Promise<RelevantContext> {
+    // Get base context
+    const context = await this.retrieveContext(taskDescription);
+
+    if (!gitState) {
+      return context;
+    }
+
+    // Add git state to context
+    context.currentBranch = gitState.branch;
+    context.currentCommit = gitState.commit;
+
+    // If there are uncommitted changes, add worktree diff
+    if (gitState.isDirty && gitState.changedFiles.length > 0) {
+      const repositories = await this.contextStore.listRepositories();
+      const primaryRepo = repositories[0];
+
+      if (primaryRepo) {
+        context.worktreeDiff = {
+          repositoryId: primaryRepo.id,
+          indexedCommit: primaryRepo.last_indexed_at?.toISOString() || "",
+          currentCommit: gitState.commit,
+          isDirty: gitState.isDirty,
+          uncommittedFiles: gitState.changedFiles.length,
+          changedSymbols: [], // Would need symbol analysis
+          affectedCapabilities: [],
+          affectedTests: [],
+        };
+
+        // Estimate impact
+        context.impactAssessment = this.estimateImpact(
+          gitState.changedFiles.length
+        );
+      }
+    }
+
+    return context;
+  }
+
+  /**
+   * PR7: Estimate impact from changed file count
+   */
+  private estimateImpact(changedFileCount: number): ImpactAssessment {
+    let complexity: "LOW" | "MEDIUM" | "HIGH" = "LOW";
+    if (changedFileCount > 20) {
+      complexity = "HIGH";
+    } else if (changedFileCount > 5) {
+      complexity = "MEDIUM";
+    }
+
+    return {
+      symbolCount: changedFileCount * 5, // Rough estimate
+      testCount: Math.ceil(changedFileCount / 3),
+      capabilityCount: Math.ceil(changedFileCount / 10),
+      repositoryCount: 1,
+      moduleCount: changedFileCount,
+      databaseCount: 0,
+      crossRepositoryImpact: false,
+      workingTreeComplexity: complexity,
     };
   }
 

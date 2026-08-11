@@ -45,6 +45,15 @@ export interface TaskClassification {
   reasoning: string;
   estimatedTokens: number;
   requiredCapabilities: string[];
+  // PR7: Impact-based classification enhancements
+  impactAssessment?: {
+    symbolCount: number;
+    testCount: number;
+    capabilityCount: number;
+    repositoryCount: number;
+    crossRepositoryImpact: boolean;
+    workingTreeComplexity: "LOW" | "MEDIUM" | "HIGH";
+  };
 }
 
 /**
@@ -71,6 +80,10 @@ export interface RoutingDecision {
   confidence: number;
   reasoning: string;
   shouldEscalate: boolean;
+  // PR7: Context-aware routing enhancements
+  contextFreshness?: "CURRENT" | "STALE" | "INVALID" | "UNKNOWN";
+  graphSize?: number;
+  affectedComponentCount?: number;
 }
 
 /**
@@ -84,6 +97,10 @@ export interface ExecutionContext {
   maxRetries: number;
   currentRetry: number;
   timestamp: Date;
+  // PR7: Workspace context
+  currentBranch?: string;
+  currentCommit?: string;
+  worktreeState?: "clean" | "dirty";
 }
 
 /**
