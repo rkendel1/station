@@ -1,0 +1,148 @@
+# AI Cost & Policy Configuration
+# Defines policies for cost management, model selection, and usage governance
+
+policy:
+  cost_management:
+    # Hard limits - will refuse requests exceeding these
+    hard_limits:
+      per_request_usd: 2.00              # Maximum cost for any single request
+      per_session_usd: 50.00             # Maximum cost per development session
+      per_day_usd: 100.00                # Maximum daily spend
+      per_month_usd: 1000.00             # Maximum monthly spend
+    
+    # Soft limits - will warn but allow continuation
+    soft_limits:
+      per_request_usd: 1.00
+      per_session_usd: 20.00
+      per_day_usd: 50.00
+      per_month_usd: 500.00
+    
+    # Budget allocation by day of week
+    budget_by_day:
+      monday: 100                        # Monday budget
+      tuesday: 100
+      wednesday: 100
+      thursday: 100
+      friday: 150                        # Higher on Friday for reviews
+      saturday: 50
+      sunday: 50
+  
+  model_selection:
+    # How the router makes decisions
+    priority_factors:
+      - cost_efficiency: 40%             # 40% weight on cost
+      - quality_score: 35%               # 35% weight on quality
+      - availability: 15%                # 15% weight on availability
+      - latency: 10%                     # 10% weight on speed
+    
+    # Availability checking
+    check_availability: true
+    availability_timeout_seconds: 5
+    
+    # Fallback strategy
+    fallback_strategy: "escalate"        # Options: escalate, retry, fail
+    max_retries: 2
+    retry_backoff_seconds: 10
+  
+  gpu_management:
+    # Auto-start/stop RunPod GPU
+    auto_start: true                     # Start GPU automatically if needed
+    auto_stop: true                      # Stop GPU when idle
+    idle_timeout_minutes: 30             # Stop after 30 min of inactivity
+    
+    # GPU health checks
+    health_check_interval_seconds: 60
+    max_consecutive_failures: 3
+    
+    # Cost optimization
+    stop_on_low_battery: true            # If on laptop/portable
+    stop_on_battery: false                # Can run on battery if charged enough
+  
+  security:
+    # API key management
+    require_api_key: true
+    validate_api_key: true
+    allow_unauthenticated: false
+    
+    # Prompt/response handling
+    log_requests: false                   # Never log prompts by default
+    log_responses: false                  # Never log responses by default
+    sanitize_logs: true                   # Remove sensitive data from logs
+    
+    # Data retention
+    cache_responses: false                # Don't cache AI responses locally
+    max_history_days: 0                   # No history by default
+  
+  quality_gates:
+    # Quality requirements
+    minimum_quality_score: 5              # Out of 10
+    
+    # When to require human review
+    review_required_if:
+      - security_task: true              # Always review security tasks
+      - quality_score_lt: 6              # Review if quality too low
+      - confidence_lt: 0.7               # Review if model not confident
+      - unknown_file_extensions: true    # Review unknown file types
+    
+    # Quality checks
+    check_for_hallucinations: true
+    check_for_syntax_errors: true
+    check_for_test_coverage: true
+  
+  integration:
+    # Codex integration
+    codex_auto_route: true                # Automatically route Codex requests
+    codex_preferred_model: "qwen"         # Prefer Qwen for Codex
+    codex_fallback_model: "frontier"
+    
+    # CLI integration
+    cli_default_model: "auto"             # Let router decide
+    
+    # Custom endpoints
+    respect_ai_base_url: true             # Use AI_BASE_URL if set
+    fallback_to_env_var: true             # Fall back to environment config
+  
+  monitoring:
+    # Track usage and costs
+    track_usage: true
+    track_costs: true
+    track_quality_metrics: true
+    
+    # Reporting
+    report_frequency: "daily"              # daily, weekly, monthly
+    send_daily_summary: false              # Email daily summary
+    
+    # Alerts
+    alert_on_cost_overrun: true
+    alert_threshold_percent: 80            # Alert at 80% of limit
+  
+  features:
+    # Feature flags
+    enable_model_auto_selection: true
+    enable_fallback_escalation: true
+    enable_cost_tracking: true
+    enable_quality_gates: true
+    enable_gpu_auto_management: true
+    
+    # Experimental features
+    enable_task_classification: true       # Auto-classify tasks
+    enable_cost_prediction: false          # Predict task cost
+    enable_quality_prediction: false       # Predict task quality
+  
+  environment:
+    # Codex environment variables
+    codex_llm_provider_var: "CODEX_LLM_PROVIDER"
+    codex_llm_base_url_var: "CODEX_LLM_BASE_URL"
+    codex_llm_model_var: "CODEX_LLM_MODEL"
+    codex_llm_api_key_var: "CODEX_LLM_API_KEY"
+    
+    # AI system environment variables
+    ai_provider_var: "AI_PROVIDER"
+    ai_base_url_var: "AI_BASE_URL"
+    ai_model_var: "AI_MODEL"
+    ai_api_key_var: "AI_API_KEY"
+    
+    # GPU control
+    runpod_pod_id_var: "RUNPOD_POD_ID"
+    runpod_api_key_var: "RUNPOD_API_KEY"
+    runpod_worker_key_var: "RUNPOD_WORKER_KEY"

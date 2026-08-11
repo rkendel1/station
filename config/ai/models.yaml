@@ -1,0 +1,167 @@
+# AI Models Configuration
+# Defines all available models and their characteristics
+# Used by the AI Router for model selection and cost management
+
+models:
+  qwen:
+    name: "Qwen3-Coder-30B"
+    provider: "openai-compatible"
+    class: "local"
+    cost_class: "very_low"
+    
+    # Provider configuration
+    # Uses environment variables: AI_BASE_URL, AI_MODEL, AI_API_KEY
+    config:
+      model_id: "Qwen3-Coder-30B"
+      max_tokens: 2048
+      context_length: 4096
+      temperature_default: 0.7
+    
+    # Capabilities - what this model is good at
+    capabilities:
+      coding: true
+      repository_reasoning: true
+      debugging: true
+      refactoring: true
+      test_generation: true
+      architectural_planning: false
+      novel_problem_solving: false
+      security_review: false
+    
+    # Performance characteristics
+    performance:
+      ttft_ms: 125              # Time to first token
+      tokens_per_second: 900
+      cold_start_seconds: 45    # GPU startup
+      warm_start_seconds: 2
+    
+    # Cost information
+    cost:
+      hourly_rate_usd: 1.99     # RunPod GPU hourly
+      cost_per_token_estimate: 0.00000273
+      average_task_cost: 0.0294
+    
+    # Quality metrics from qualification tests
+    quality:
+      task_success_rate: 0.85
+      average_quality_score: 24
+      hallucination_rate: 0.08
+      repository_comprehension_rate: 0.88
+      debugging_effectiveness: 0.82
+    
+    # When to use this model
+    recommended_for:
+      - "implementation"
+      - "refactoring"
+      - "test_generation"
+      - "debugging_single_component"
+      - "code_review"
+      - "documentation"
+      - "maintenance"
+    
+    # When NOT to use this model
+    not_recommended_for:
+      - "complex_architecture"
+      - "novel_algorithm"
+      - "security_critical"
+      - "unfamiliar_codebase"
+  
+  frontier:
+    name: "GPT-4 Turbo"
+    provider: "openai"
+    class: "api"
+    cost_class: "high"
+    
+    config:
+      model_id: "gpt-4-turbo-preview"
+      max_tokens: 4096
+      context_length: 128000
+      temperature_default: 0.7
+    
+    capabilities:
+      coding: true
+      repository_reasoning: true
+      debugging: true
+      refactoring: true
+      test_generation: true
+      architectural_planning: true
+      novel_problem_solving: true
+      security_review: true
+    
+    performance:
+      ttft_ms: 500
+      tokens_per_second: 400
+      cold_start_seconds: 0
+      warm_start_seconds: 1
+    
+    cost:
+      hourly_rate_usd: 0
+      cost_per_token_estimate: 0.00003
+      average_task_cost: 0.12
+    
+    quality:
+      task_success_rate: 0.95
+      average_quality_score: 28
+      hallucination_rate: 0.03
+      repository_comprehension_rate: 0.95
+      debugging_effectiveness: 0.95
+    
+    recommended_for:
+      - "complex_architecture"
+      - "novel_algorithm"
+      - "security_critical"
+      - "fallback"
+    
+    not_recommended_for:
+      - "routine_tasks"
+      - "cost_sensitive"
+  
+  claude:
+    name: "Claude-3 Opus"
+    provider: "anthropic"
+    class: "api"
+    cost_class: "high"
+    
+    config:
+      model_id: "claude-3-opus-20240229"
+      max_tokens: 4096
+      context_length: 200000
+      temperature_default: 0.7
+    
+    capabilities:
+      coding: true
+      repository_reasoning: true
+      debugging: true
+      refactoring: true
+      test_generation: true
+      architectural_planning: true
+      novel_problem_solving: true
+      security_review: true
+    
+    performance:
+      ttft_ms: 600
+      tokens_per_second: 300
+      cold_start_seconds: 0
+      warm_start_seconds: 1
+    
+    cost:
+      hourly_rate_usd: 0
+      cost_per_token_estimate: 0.000015
+      average_task_cost: 0.10
+    
+    quality:
+      task_success_rate: 0.93
+      average_quality_score: 27
+      hallucination_rate: 0.04
+      repository_comprehension_rate: 0.92
+      debugging_effectiveness: 0.90
+    
+    recommended_for:
+      - "complex_architecture"
+      - "novel_algorithm"
+      - "security_critical"
+      - "fallback"
+    
+    not_recommended_for:
+      - "routine_tasks"
+      - "cost_sensitive"
