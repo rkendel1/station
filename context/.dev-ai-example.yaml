@@ -1,0 +1,97 @@
+# Example Workspace Configuration
+#
+# Place this file at .dev-ai/context.yaml in your workspace root
+#
+# The context system will automatically discover and use this configuration
+
+workspace:
+  # Workspace name
+  name: my-development-workspace
+  
+  # Repositories to index (relative paths from workspace root)
+  repositories:
+    - ./backend
+    - ./frontend
+    - ./shared-lib
+    - ./mobile
+
+context:
+  # Database location (default: ~/.dev-ai/context/context.db)
+  database: ~/.dev-ai/context/context.db
+  
+  # Enable semantic embeddings for similarity search
+  # Requires pgvector support (future)
+  embeddings: false
+  
+  # Watch for file changes and re-index automatically
+  watch: false
+
+# Patterns to exclude from indexing
+exclude:
+  # Node.js
+  - node_modules
+  - package-lock.json
+  - yarn.lock
+  - dist
+  - build
+  - .next
+  
+  # Python
+  - __pycache__
+  - .pytest_cache
+  - .mypy_cache
+  - .venv
+  - venv
+  - .egg-info
+  
+  # Rust
+  - target
+  - Cargo.lock
+  
+  # Git
+  - .git
+  - .gitignore
+  
+  # Environment
+  - .env
+  - .env.local
+  - .env.*.local
+  
+  # IDE
+  - .vscode
+  - .idea
+  - *.swp
+  - *.swo
+  
+  # OS
+  - .DS_Store
+  - Thumbs.db
+  
+  # Build artifacts
+  - coverage
+  - .cache
+
+# Include code symbols in index (functions, classes, types)
+include_symbols: true
+
+# Include test files in index
+include_tests: true
+
+# Patterns that indicate secret content (for filtering before indexing)
+secret_patterns:
+  - password
+  - passwd
+  - pwd
+  - api_key
+  - apikey
+  - secret
+  - token
+  - bearer
+  - auth
+  - credentials
+  - private_key
+  - private-key
+  - privatekey
+  - aws_secret
+  - connection_string
+  - database_url
