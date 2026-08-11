@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -f package.json ]]; then
+  if node -e "const p=require('./package.json'); process.exit((p.scripts&&p.scripts.lint)?0:1)"; then
+    exec npm run lint
+  fi
+fi
+
+if [[ -f Cargo.toml ]]; then
+  exec cargo fmt --check
+fi
+
+if [[ -f pyproject.toml || -f requirements.txt ]]; then
+  if command -v ruff >/dev/null 2>&1; then
+    exec ruff check .
+  fi
+  if command -v flake8 >/dev/null 2>&1; then
+    exec flake8 .
+  fi
+fi
+
+echo "No lint command detected for this project."

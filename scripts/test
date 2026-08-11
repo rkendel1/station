@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -f package.json ]]; then
+  if node -e "const p=require('./package.json'); process.exit((p.scripts&&p.scripts.test)?0:1)"; then
+    exec npm test
+  fi
+fi
+
+if [[ -f Cargo.toml ]]; then
+  exec cargo test
+fi
+
+if [[ -f pyproject.toml ]]; then
+  if command -v pytest >/dev/null 2>&1; then
+    exec pytest
+  fi
+  echo "Python project detected but pytest is not installed."
+  exit 1
+fi
+
+echo "No test command detected for this project."

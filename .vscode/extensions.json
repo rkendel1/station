@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "GitHub.codespaces",
+    "ms-azuretools.vscode-docker",
+    "rust-lang.rust-analyzer",
+    "ms-python.python",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode"
+  ]
+}

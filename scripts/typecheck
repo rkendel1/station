@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ -f package.json ]]; then
+  if node -e "const p=require('./package.json'); process.exit((p.scripts&&p.scripts.typecheck)?0:1)"; then
+    exec npm run typecheck
+  fi
+  if [[ -f tsconfig.json ]] && command -v tsc >/dev/null 2>&1; then
+    exec tsc --noEmit
+  fi
+fi
+
+if [[ -f Cargo.toml ]]; then
+  exec cargo check
+fi
+
+if [[ -f pyproject.toml || -f requirements.txt ]]; then
+  if command -v mypy >/dev/null 2>&1; then
+    exec mypy .
+  fi
+  if command -v pyright >/dev/null 2>&1; then
+    exec pyright
+  fi
+fi
+
+echo "No typecheck command detected for this project."
