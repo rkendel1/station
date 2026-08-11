@@ -1,0 +1,144 @@
+# AI Profiles Configuration
+# Defines usage profiles and preferences for different development scenarios
+# Profiles determine which models are preferred for different types of tasks
+
+profiles:
+  default:
+    name: "Default Development"
+    description: "Standard development workflow - balance of cost and quality"
+    
+    # Primary model choice
+    preferred_model: "qwen"
+    fallback_model: "frontier"
+    
+    # When to escalate to frontier model
+    escalation_triggers:
+      - task_failure: true              # Escalate if Qwen fails
+      - complexity_score_gt: 8           # Escalate if task complexity > 8
+      - capability_mismatch: true        # Escalate if Qwen lacks capability
+    
+    # Cost limits
+    cost_limits:
+      per_task_usd: 1.00                # Will escalate if task exceeds this
+      daily_limit_usd: 50.00
+      monthly_limit_usd: 500.00
+    
+    # Model preferences by task type
+    task_routing:
+      implementation: "qwen"
+      refactoring: "qwen"
+      test_generation: "qwen"
+      debugging_single: "qwen"
+      code_review: "qwen"
+      documentation: "qwen"
+      maintenance: "qwen"
+      
+      complex_architecture: "frontier"
+      novel_algorithm: "frontier"
+      security_critical: "frontier"
+      research: "frontier"
+      fallback: "frontier"
+
+  cost_sensitive:
+    name: "Cost-Sensitive"
+    description: "Minimize costs - use Qwen for everything possible"
+    
+    preferred_model: "qwen"
+    fallback_model: "claude"
+    
+    escalation_triggers:
+      - task_failure: true
+      - complexity_score_gt: 9          # Higher threshold
+      - capability_mismatch: true
+    
+    cost_limits:
+      per_task_usd: 0.50                # Stricter per-task limit
+      daily_limit_usd: 20.00
+      monthly_limit_usd: 200.00
+    
+    task_routing:
+      implementation: "qwen"
+      refactoring: "qwen"
+      test_generation: "qwen"
+      debugging_single: "qwen"
+      code_review: "qwen"
+      documentation: "qwen"
+      maintenance: "qwen"
+      complex_architecture: "qwen"      # Try Qwen even for complex tasks
+      novel_algorithm: "qwen"
+      security_critical: "frontier"    # Only escalate for security
+      research: "frontier"
+      fallback: "claude"
+
+  quality_first:
+    name: "Quality First"
+    description: "Prioritize quality - use frontier for important tasks"
+    
+    preferred_model: "frontier"
+    fallback_model: "claude"
+    
+    escalation_triggers:
+      - task_failure: true
+      - quality_score_lt: 7             # Downgrade if quality too low
+    
+    cost_limits:
+      per_task_usd: 5.00                # Generous per-task limit
+      daily_limit_usd: 200.00
+      monthly_limit_usd: 5000.00
+    
+    task_routing:
+      implementation: "frontier"
+      refactoring: "frontier"
+      test_generation: "frontier"
+      debugging_single: "frontier"
+      code_review: "frontier"
+      documentation: "frontier"
+      maintenance: "qwen"
+      complex_architecture: "frontier"
+      novel_algorithm: "frontier"
+      security_critical: "frontier"
+      research: "frontier"
+      fallback: "frontier"
+
+  balanced:
+    name: "Balanced"
+    description: "Balance between cost and quality - dynamic selection"
+    
+    preferred_model: "auto"             # Use router to decide
+    fallback_model: "frontier"
+    
+    escalation_triggers:
+      - task_failure: true
+      - complexity_score_gt: 7
+      - capability_mismatch: true
+    
+    cost_limits:
+      per_task_usd: 2.00
+      daily_limit_usd: 100.00
+      monthly_limit_usd: 1000.00
+    
+    # Router will make intelligent decisions based on:
+    # - Task complexity
+    # - Required capabilities
+    # - Model availability
+    # - Cost constraints
+    task_routing:
+      default: "auto"  # Router decides
+
+  exploration:
+    name: "Exploration"
+    description: "Experimental - try different models for comparison"
+    
+    preferred_model: "qwen"
+    fallback_model: "frontier"
+    
+    # Log all decisions for analysis
+    logging_level: "debug"
+    record_comparisons: true
+    
+    task_routing:
+      default: "qwen"
+      fallback: "frontier"
+
+# Default profile to use
+default_profile: "balanced"

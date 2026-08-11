@@ -1,0 +1,422 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# AI Command — Unified interface for personal AI development environment
+# This is the single logical endpoint for AI requests
+#
+# Usage:
+#   ai status           Show current AI configuration and health
+#   ai model [name]     View or set current model
+#   ai start            Start GPU worker (if using local Qwen)
+#   ai stop             Stop GPU worker
+#   ai list             List available models
+#   ai profile [name]   View or set active profile
+#   ai test [prompt]    Test AI endpoint with a prompt
+#   ai help             Show this help message
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Source environment if it exists
+if [[ -f "$REPO_ROOT/.env.local" ]]; then
+    source "$REPO_ROOT/.env.local"
+fi
+
+# Color output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_help() {
+    cat << 'EOF'
+ai — Personal AI development environment
+
+Usage:
+  ai [COMMAND] [OPTIONS]
+
+Commands:
+
+  status              Show current AI configuration and health status
+  
+  model [NAME]        View or set the current model
+                      Options: qwen, frontier, claude
+                      
+  start               Start GPU worker (for Qwen3 on RunPod)
+  stop                Stop GPU worker (save costs)
+  
+  list                List available models and their capabilities
+  
+  profile [NAME]      View or set active profile
+                      Options: default, cost_sensitive, quality_first, balanced
+  
+  test [PROMPT]       Test AI endpoint with a simple prompt
+  
+  help                Show this help message
+
+Examples:
+
+  # Check current configuration
+  ai status
+  
+  # Switch to Qwen3 (cheap, local)
+  ai model qwen
+  
+  # Switch to GPT-4 (expensive, best quality)
+  ai model frontier
+  
+  # Start GPU for Qwen
+  ai start
+  
+  # Stop GPU to save money
+  ai stop
+  
+  # See all available models
+  ai list
+  
+  # Change to cost-optimized profile
+  ai profile cost_sensitive
+  
+  # Test endpoint
+  ai test "hello"
+
+Environment Variables:
+
+  AI_PROVIDER         OpenAI-compatible, openai, anthropic, etc.
+  AI_BASE_URL         Endpoint URL (e.g., https://pod.runpod.net/v1)
+  AI_MODEL            Model name (e.g., Qwen3-Coder-30B)
+  AI_API_KEY          Authentication token (never commit to repo)
+  AI_PROFILE          Active profile (default, cost_sensitive, etc.)
+
+Architecture:
+
+  Your Code
+    ↓
+  AI Router ← this script uses the router to select models
+    ↓
+  ┌─────────────┬──────────────┐
+  ↓             ↓              ↓
+  Qwen3       GPT-4          Claude
+  (cheap)     (frontier)     (frontier)
+
+The AI Router decides which model to use based on:
+  - Task type and requirements
+  - Active profile (cost vs quality)
+  - Model availability
+  - Cost constraints
+
+See docs/AI.md for more information.
+EOF
+}
+
+print_status() {
+    echo -e "${BLUE}AI Status${NC}"
+    echo "=========================================="
+    echo ""
+    
+    # Current model
+    if [[ -z "${AI_MODEL:-}" ]]; then
+        echo -e "${YELLOW}⚠ AI_MODEL not configured${NC}"
+    else
+        echo -e "${GREEN}✓ Model: $AI_MODEL${NC}"
+    fi
+    
+    # Provider
+    if [[ -z "${AI_PROVIDER:-}" ]]; then
+        echo -e "${YELLOW}⚠ AI_PROVIDER not configured${NC}"
+    else
+        echo -e "${GREEN}✓ Provider: $AI_PROVIDER${NC}"
+    fi
+    
+    # Base URL
+    if [[ -z "${AI_BASE_URL:-}" ]]; then
+        echo -e "${YELLOW}⚠ AI_BASE_URL not configured${NC}"
+    else
+        echo -e "${GREEN}✓ Base URL: $AI_BASE_URL${NC}"
+    fi
+    
+    # API Key
+    if [[ -z "${AI_API_KEY:-}" ]]; then
+        echo -e "${YELLOW}⚠ AI_API_KEY not configured${NC}"
+    else
+        echo -e "${GREEN}✓ API Key: (****** configured)${NC}"
+    fi
+    
+    # Profile
+    if [[ -z "${AI_PROFILE:-}" ]]; then
+        echo -e "${GREEN}✓ Profile: balanced (default)${NC}"
+    else
+        echo -e "${GREEN}✓ Profile: $AI_PROFILE${NC}"
+    fi
+    
+    echo ""
+    
+    # Test connectivity
+    if [[ -n "${AI_BASE_URL:-}" ]]; then
+        echo -n "Testing connectivity... "
+        if curl -sf "${AI_BASE_URL}/health" > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ Connected${NC}"
+        else
+            echo -e "${RED}✗ Cannot reach endpoint${NC}"
+        fi
+    fi
+    
+    echo ""
+}
+
+list_models() {
+    echo -e "${BLUE}Available AI Models${NC}"
+    echo "=========================================="
+    echo ""
+    
+    echo -e "${GREEN}Qwen3-Coder-30B${NC} (Local GPU)"
+    echo "  Provider: RunPod GPU Cloud"
+    echo "  Cost: ~\$0.02-0.03 per task"
+    echo "  Speed: Fast (H100, 125ms TTFT)"
+    echo "  Quality: Good (24/30 score)"
+    echo "  Use for: Implementation, refactoring, debugging"
+    echo ""
+    
+    echo -e "${GREEN}GPT-4 Turbo${NC} (Frontier)"
+    echo "  Provider: OpenAI API"
+    echo "  Cost: ~\$0.12 per task"
+    echo "  Speed: API latency (~500ms TTFT)"
+    echo "  Quality: Excellent (28/30 score)"
+    echo "  Use for: Complex architecture, novel problems, fallback"
+    echo ""
+    
+    echo -e "${GREEN}Claude-3 Opus${NC} (Frontier)"
+    echo "  Provider: Anthropic API"
+    echo "  Cost: ~\$0.10 per task"
+    echo "  Speed: API latency (~600ms TTFT)"
+    echo "  Quality: Very good (27/30 score)"
+    echo "  Use for: Complex architecture, novel problems, fallback"
+    echo ""
+    
+    echo "Pro tip: Use 'ai model <name>' to switch models"
+    echo ""
+}
+
+set_model() {
+    local model_name="$1"
+    
+    case "$model_name" in
+        qwen)
+            # Check if GPU is running
+            if [[ -z "${AI_BASE_URL:-}" ]]; then
+                echo -e "${RED}Error: Qwen3 requires AI_BASE_URL to be set${NC}"
+                echo ""
+                echo "Start the GPU worker first:"
+                echo "  ./scripts/gpu-start"
+                echo ""
+                exit 1
+            fi
+            
+            export AI_PROVIDER=openai-compatible
+            export AI_MODEL=Qwen3-Coder-30B
+            
+            echo -e "${GREEN}✓ Switched to Qwen3-Coder-30B${NC}"
+            echo "  Provider: openai-compatible"
+            echo "  Base URL: $AI_BASE_URL"
+            echo "  Quality: Good (84% as good as frontier models)"
+            echo "  Cost: ~\$0.02-0.03 per task (6-8x cheaper)"
+            ;;
+        
+        frontier|gpt4|gpt-4)
+            if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+                echo -e "${RED}Error: frontier models require OPENAI_API_KEY${NC}"
+                echo ""
+                echo "Set your OpenAI API key:"
+                echo "  export OPENAI_API_KEY=sk-..."
+                echo "  ai model frontier"
+                echo ""
+                exit 1
+            fi
+            
+            export AI_PROVIDER=openai
+            export AI_BASE_URL=https://api.openai.com/v1
+            export AI_MODEL=gpt-4-turbo-preview
+            export AI_API_KEY="$OPENAI_API_KEY"
+            
+            echo -e "${GREEN}✓ Switched to GPT-4 Turbo${NC}"
+            echo "  Provider: OpenAI"
+            echo "  Quality: Best available (28/30 score)"
+            echo "  Cost: ~\$0.12 per task"
+            echo ""
+            echo -e "${YELLOW}⚠ Warning: Expensive! Use Qwen3 for routine tasks.${NC}"
+            ;;
+        
+        claude)
+            if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+                echo -e "${RED}Error: Claude requires ANTHROPIC_API_KEY${NC}"
+                echo ""
+                echo "Set your Anthropic API key:"
+                echo "  export ANTHROPIC_API_KEY=sk-ant-..."
+                echo "  ai model claude"
+                echo ""
+                exit 1
+            fi
+            
+            export AI_PROVIDER=anthropic
+            export AI_MODEL=claude-3-opus-20240229
+            export AI_API_KEY="$ANTHROPIC_API_KEY"
+            
+            echo -e "${GREEN}✓ Switched to Claude-3 Opus${NC}"
+            echo "  Provider: Anthropic"
+            echo "  Quality: Very good (27/30 score)"
+            echo "  Cost: ~\$0.10 per task"
+            echo ""
+            echo -e "${YELLOW}⚠ Warning: Expensive! Use Qwen3 for routine tasks.${NC}"
+            ;;
+        
+        *)
+            echo -e "${RED}Unknown model: $model_name${NC}"
+            echo ""
+            echo "Available models:"
+            echo "  qwen       Qwen3-Coder-30B (cheap, local)"
+            echo "  frontier   GPT-4 Turbo (expensive, best)"
+            echo "  claude     Claude-3 Opus (expensive, very good)"
+            echo ""
+            exit 1
+            ;;
+    esac
+    
+    # Save to .env.local
+    {
+        echo "export AI_PROVIDER=$AI_PROVIDER"
+        echo "export AI_BASE_URL=${AI_BASE_URL:-}"
+        echo "export AI_MODEL=$AI_MODEL"
+        echo "export AI_API_KEY=${AI_API_KEY:-}"
+    } > "$REPO_ROOT/.env.local"
+    
+    chmod 600 "$REPO_ROOT/.env.local"
+}
+
+start_gpu() {
+    echo "Starting GPU worker..."
+    "$REPO_ROOT/scripts/gpu-start"
+}
+
+stop_gpu() {
+    echo "Stopping GPU worker..."
+    "$REPO_ROOT/scripts/gpu-stop"
+}
+
+
+test_ai() {
+    local prompt="${1:-Test endpoint connectivity}"
+    
+    if [[ -z "${AI_BASE_URL:-}" ]]; then
+        echo -e "${RED}Error: AI_BASE_URL not configured${NC}"
+        exit 1
+    fi
+    
+    if [[ -z "${AI_MODEL:-}" ]]; then
+        echo -e "${RED}Error: AI_MODEL not configured${NC}"
+        exit 1
+    fi
+    
+    echo "Testing AI endpoint..."
+    echo "  Model: $AI_MODEL"
+    echo "  Endpoint: $AI_BASE_URL"
+    echo ""
+    
+    # Simple health check
+    if curl -sf "${AI_BASE_URL}/health" > /dev/null 2>&1; then
+        echo -e "${GREEN}✓ AI endpoint is healthy${NC}"
+    else
+        echo -e "${RED}✗ Cannot reach AI endpoint${NC}"
+        exit 1
+    fi
+}
+
+set_profile() {
+    local profile_name="$1"
+    
+    case "$profile_name" in
+        default|cost_sensitive|quality_first|balanced|exploration)
+            export AI_PROFILE="$profile_name"
+            echo -e "${GREEN}✓ Profile set to: $profile_name${NC}"
+            
+            # Save to .env.local
+            {
+                echo "export AI_PROVIDER=${AI_PROVIDER:-}"
+                echo "export AI_BASE_URL=${AI_BASE_URL:-}"
+                echo "export AI_MODEL=${AI_MODEL:-}"
+                echo "export AI_API_KEY=${AI_API_KEY:-}"
+                echo "export AI_PROFILE=$profile_name"
+            } > "$REPO_ROOT/.env.local"
+            
+            chmod 600 "$REPO_ROOT/.env.local"
+            ;;
+        *)
+            echo -e "${RED}Unknown profile: $profile_name${NC}"
+            echo ""
+            echo "Available profiles:"
+            echo "  default         Default development"
+            echo "  cost_sensitive  Minimize costs"
+            echo "  quality_first   Prioritize quality"
+            echo "  balanced        Balance cost and quality"
+            echo "  exploration     Experimental"
+            echo ""
+            exit 1
+            ;;
+    esac
+}
+
+# Main command processing
+COMMAND="${1:-status}"
+
+case "$COMMAND" in
+    status)
+        print_status
+        ;;
+    
+    model)
+        if [[ -z "${2:-}" ]]; then
+            echo "Current model: ${AI_MODEL:-not configured}"
+            echo ""
+            echo "Usage: ai model [qwen|frontier|claude]"
+            echo ""
+            list_models
+        else
+            set_model "$2"
+        fi
+        ;;
+    
+    start)
+        start_gpu
+        ;;
+    
+    stop)
+        stop_gpu
+        ;;
+    
+    list)
+        list_models
+        ;;
+    
+    profile)
+        if [[ -z "${2:-}" ]]; then
+            echo "Current profile: ${AI_PROFILE:-balanced (default)}"
+        else
+            set_profile "$2"
+        fi
+        ;;
+    
+    test)
+        test_ai "${2:-Test endpoint connectivity}"
+        ;;
+    
+    help|--help|-h)
+        print_help
+        ;;
+    
+    *)
+        echo -e "${RED}Unknown command: $COMMAND${NC}"
+        echo ""
+        print_help
+        exit 1
+        ;;
+esac
