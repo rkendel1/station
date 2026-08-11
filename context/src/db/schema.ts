@@ -4,8 +4,20 @@
 
 export const SCHEMA_VERSION = 1;
 
+/**
+ * Initialize schema versioning table (works with both SQLite and PGlite)
+ */
+export const SCHEMA_INIT_SQL = `
+CREATE TABLE IF NOT EXISTS schema_version (
+  id INTEGER PRIMARY KEY,
+  version INTEGER NOT NULL,
+  applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`;
+
 export const migrations = {
-  "1": `
+  "1": `${SCHEMA_INIT_SQL}
+
 -- Repositories table
 CREATE TABLE IF NOT EXISTS repositories (
   id TEXT PRIMARY KEY,
@@ -159,7 +171,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
   entity_type TEXT NOT NULL,
   entity_id TEXT NOT NULL,
   content TEXT,
-  embedding BLOB,
+  embedding BYTEA,
   model TEXT,
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP

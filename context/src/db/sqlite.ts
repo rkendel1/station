@@ -1,8 +1,8 @@
 /**
- * SQLite database backend using better-sqlite3
+ * PGlite database backend (in-process PostgreSQL-compatible database)
  */
 
-import Database from "better-sqlite3";
+import { PGlite } from "@electric-sql/pglite";
 import { getDBPath, ensureDBDirectory } from "./client.js";
 
 export interface DatabaseInstance {
@@ -11,51 +11,38 @@ export interface DatabaseInstance {
   close(): Promise<void>;
 }
 
-let sqlite3: typeof Database | null = null;
+let pglite: PGlite | null = null;
 
 /**
- * Lazy load better-sqlite3
+ * Lazy load PGlite
  */
-async function getSqlite3() {
-  if (!sqlite3) {
+async function getPGlite(): Promise<PGlite> {
+  if (!pglite) {
     try {
-      // Dynamic import for better-sqlite3
-      const module = await import("better-sqlite3");
-      sqlite3 = module.default;
+      ensureDBDirectory();
+      const dbPath = getDBPath();
+      pglite = new PGlite(`file://${dbPath}`);
+      await pglite.ready;
     } catch (error) {
       throw new Error(
-        `better-sqlite3 not installed. Run: npm install better-sqlite3\n${error}`
+        `PGlite initialization failed. Run: npm install @electric-sql/pglite\n${error}`
       );
     }
   }
-  return sqlite3;
+  return pglite;
 }
 
 /**
- * Create SQLite database connection
+ * Create PGlite database connection
  */
-export async function createSQLiteDatabase(): Promise<DatabaseInstance> {
-  const SQLiteDb = await getSqlite3();
-  if (!SQLiteDb) {
-    throw new Error("Could not load better-sqlite3");
-  }
-
-  ensureDBDirectory();
-  const dbPath = getDBPath();
-
-  const db = new SQLiteDb(dbPath);
-
-  // Enable foreign keys
-  db.pragma("foreign_keys = ON");
+export async function createPGliteDatabase(): Promise<DatabaseInstance> {
+  const db = await getPGlite();
 
   return {
     async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
       try {
-        const stmt = db.prepare(sql);
-        if (params && params.length > 0) {
-          return stmt.all(...params) as T[];
-        }
-        return stmt.all() as T[];
+        const result = await db.query(sql, params);
+        return result.rows as T[];
       } catch (error) {
         throw new Error(
           `Query failed: ${error instanceof Error ? error.message : String(error)}\nSQL: ${sql}`
@@ -65,14 +52,8 @@ export async function createSQLiteDatabase(): Promise<DatabaseInstance> {
 
     async run(sql: string, params?: unknown[]): Promise<{ changes: number }> {
       try {
-        const stmt = db.prepare(sql);
-        let result;
-        if (params && params.length > 0) {
-          result = stmt.run(...params);
-        } else {
-          result = stmt.run();
-        }
-        return { changes: result.changes };
+        const result = await db.query(sql, params);
+        return { changes: result.affectedRows || 0 };
       } catch (error) {
         throw new Error(
           `Run failed: ${error instanceof Error ? error.message : String(error)}\nSQL: ${sql}`
@@ -81,7 +62,11 @@ export async function createSQLiteDatabase(): Promise<DatabaseInstance> {
     },
 
     async close(): Promise<void> {
-      db.close();
+      if (pglite) {
+        await pglite.close();
+        pglite = null;
+      }
     },
   };
 }
+
