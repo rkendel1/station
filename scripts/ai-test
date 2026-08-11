@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""
+Provider-neutral AI client for testing the GPU worker.
+
+Supports any OpenAI-compatible endpoint via environment variables:
+  AI_BASE_URL    - Base URL (e.g., https://pod-id.runpod.net/v1)
+  AI_MODEL       - Model name (e.g., Qwen3-Coder-30B)
+  AI_API_KEY     - API key/token
+
+Examples:
+
+  # Run a simple query
+  ./scripts/ai-test "What is 2+2?"
+
+  # Test with custom endpoint
+  AI_BASE_URL=https://my-pod.runpod.net/v1 \\
+  AI_MODEL=Qwen3-Coder-30B \\
+  AI_API_KEY=token123 \\
+  ./scripts/ai-test "Implement a binary search"
+
+  # Test with streaming
+  ./scripts/ai-test --stream "Explain machine learning"
+
+  # Run multiple times and measure latency
+  ./scripts/ai-test --iterations 3 "Hello world"
+"""
+
+import os
+import sys
+import time
+import json
+import argparse
+from typing import Optional, Tuple
+import statistics
+
+try:
+    from openai import OpenAI
+except ImportError:
+    print("Error: openai package not found")
+    print("Install with: pip install openai")
+    sys.exit(1)
+
+
+def get_client() -> Tuple[OpenAI, dict]:
+    """Create OpenAI-compatible client from environment variables."""
+    base_url = os.getenv("AI_BASE_URL", "http://localhost:8000/v1")
+    api_key = os.getenv("AI_API_KEY", "test-key")
+    model = os.getenv("AI_MODEL", "Qwen3-Coder-30B")
+    
+    config = {
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": model,
+    }
+    
+    client = OpenAI(
+        base_url=base_url,
+        api_key=api_key,
+    )
+    
+    return client, config
+
+
+def test_health(base_url: str) -> bool:
+    """Test if worker is reachable."""
+    import urllib.request
+    try:
+        health_url = base_url.replace("/v1", "") + "/health"
+        urllib.request.urlopen(health_url, timeout=5)
+        return True
+    except Exception:
+        return False
+
+
+def format_duration(ms: float) -> str:
+    """Format milliseconds into human-readable time."""
+    if ms < 1000:
+        return f"{ms:.0f}ms"
+    return f"{ms/1000:.2f}s"
+
+
+def run_inference(
+    client: OpenAI,
+    model: str,
+    prompt: str,
+    max_tokens: int = 500,
+    temperature: float = 0.7,
+    stream: bool = False,
+) -> dict:
+    """Run inference and measure performance."""
+    
+    messages = [{"role": "user", "content": prompt}]
+    
+    start_time = time.time()
+    ttft = None
+    first_chunk_time = None
+    tokens_generated = 0
+    
+    try:
+        if stream:
+            response_text = ""
+            with client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True,
+            ) as stream_response:
+                for chunk in stream_response:
+                    if first_chunk_time is None:
+                        first_chunk_time = time.time()
+                        ttft = (first_chunk_time - start_time) * 1000
+                    
+                    if chunk.choices[0].delta.content:
+                        response_text += chunk.choices[0].delta.content
+                        tokens_generated += 1
+            
+            total_time = time.time() - start_time
+            
+            result = {
+                "success": True,
+                "response": response_text,
+                "total_latency_ms": total_time * 1000,
+                "ttft_ms": ttft,
+                "tokens_generated": tokens_generated,
+                "tokens_per_second": tokens_generated / total_time if total_time > 0 else 0,
+                "stream": True,
+            }
+        else:
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            
+            total_time = time.time() - start_time
+            
+            prompt_tokens = response.usage.prompt_tokens
+            completion_tokens = response.usage.completion_tokens
+            
+            result = {
+                "success": True,
+                "response": response.choices[0].message.content,
+                "total_latency_ms": total_time * 1000,
+                "ttft_ms": None,  # Not available in non-stream mode
+                "input_tokens": prompt_tokens,
+                "output_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+                "tokens_per_second": completion_tokens / total_time if total_time > 0 else 0,
+                "stream": False,
+            }
+        
+        return result
+    
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "total_latency_ms": (time.time() - start_time) * 1000,
+        }
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Test OpenAI-compatible AI endpoint",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    parser.add_argument("prompt", nargs="?", default="Hello, world!", help="Prompt to send")
+    parser.add_argument("--stream", action="store_true", help="Use streaming")
+    parser.add_argument("--iterations", type=int, default=1, help="Number of times to run")
+    parser.add_argument("--max-tokens", type=int, default=500, help="Max output tokens")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Temperature")
+    parser.add_argument("--json", action="store_true", help="Output JSON results")
+    parser.add_argument("--verbose", action="store_true", help="Verbose output")
+    
+    args = parser.parse_args()
+    
+    # Get configuration
+    client, config = get_client()
+    
+    if args.verbose:
+        print("Configuration:", file=sys.stderr)
+        print(f"  Base URL: {config['base_url']}", file=sys.stderr)
+        print(f"  Model: {config['model']}", file=sys.stderr)
+        print(f"  Prompt: {args.prompt}", file=sys.stderr)
+        print(file=sys.stderr)
+    
+    # Test health
+    if args.verbose:
+        print("Checking health...", file=sys.stderr)
+        if test_health(config["base_url"]):
+            print("✓ Worker is reachable", file=sys.stderr)
+        else:
+            print("✗ Worker is not reachable", file=sys.stderr)
+        print(file=sys.stderr)
+    
+    # Run inference
+    results = []
+    for i in range(args.iterations):
+        if args.iterations > 1 and not args.json:
+            print(f"\nIteration {i+1}/{args.iterations}", file=sys.stderr)
+        
+        result = run_inference(
+            client,
+            config["model"],
+            args.prompt,
+            max_tokens=args.max_tokens,
+            temperature=args.temperature,
+            stream=args.stream,
+        )
+        
+        results.append(result)
+        
+        if not args.json:
+            if result["success"]:
+                print(f"Response: {result['response'][:100]}...", file=sys.stderr)
+                print(f"Latency: {format_duration(result['total_latency_ms'])}", file=sys.stderr)
+                if "input_tokens" in result:
+                    print(f"Tokens: {result['input_tokens']} + {result['output_tokens']}", file=sys.stderr)
+                if "tokens_per_second" in result and result["tokens_per_second"] > 0:
+                    print(f"Throughput: {result['tokens_per_second']:.1f} tokens/sec", file=sys.stderr)
+            else:
+                print(f"Error: {result['error']}", file=sys.stderr)
+    
+    # Report results
+    if args.json:
+        output = {
+            "config": config,
+            "results": results,
+        }
+        
+        if len(results) > 1:
+            latencies = [r["total_latency_ms"] for r in results if r["success"]]
+            if latencies:
+                output["stats"] = {
+                    "median_latency_ms": statistics.median(latencies),
+                    "mean_latency_ms": statistics.mean(latencies),
+                    "min_latency_ms": min(latencies),
+                    "max_latency_ms": max(latencies),
+                }
+        
+        print(json.dumps(output, indent=2))
+    else:
+        if len(results) > 1:
+            latencies = [r["total_latency_ms"] for r in results if r["success"]]
+            if latencies:
+                print("\nAggregate Latency:", file=sys.stderr)
+                print(f"  Median: {format_duration(statistics.median(latencies))}", file=sys.stderr)
+                print(f"  Mean: {format_duration(statistics.mean(latencies))}", file=sys.stderr)
+                print(f"  Min: {format_duration(min(latencies))}", file=sys.stderr)
+                print(f"  Max: {format_duration(max(latencies))}", file=sys.stderr)
+    
+    # Exit code
+    if all(r["success"] for r in results):
+        sys.exit(0)
+    else:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
