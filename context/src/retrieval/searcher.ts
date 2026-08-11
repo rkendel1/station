@@ -131,6 +131,23 @@ export class ContextRetriever {
   }
 
   /**
+   * Get database instance for direct queries
+   */
+  getDatabase(): Database {
+    return this.db;
+  }
+
+  /**
+   * Get files in a repository
+   */
+  async getRepositoryFiles(repositoryId: string): Promise<File[]> {
+    return this.db.query<File>(
+      `SELECT * FROM files WHERE repository_id = ? ORDER BY path`,
+      [repositoryId]
+    );
+  }
+
+  /**
    * Get tests for a file
    */
   async getFileTests(fileId: string): Promise<TestRecord[]> {
