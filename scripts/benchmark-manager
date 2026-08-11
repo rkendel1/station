@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+"""
+Benchmark Task Manager — Task isolation, execution, and results tracking
+
+Ensures each benchmark task starts from a clean state and properly records results.
+
+Usage:
+
+  # Run a single task in isolation
+  ./scripts/benchmark-manager run --task 001 --mode planning
+
+  # Run all tasks
+  ./scripts/benchmark-manager run --all
+
+  # Show task status
+  ./scripts/benchmark-manager status
+
+  # Initialize task repository
+  ./scripts/benchmark-manager init
+
+  # Clean results
+  ./scripts/benchmark-manager clean --task 001
+"""
+
+import os
+import sys
+import json
+import shutil
+import subprocess
+import argparse
+from pathlib import Path
+from datetime import datetime
+from typing import Dict, List, Optional
+import tempfile
+import logging
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+class BenchmarkManager:
+    """Manage benchmark task execution with isolation."""
+    
+    def __init__(self, repo_root: Path):
+        self.repo_root = Path(repo_root)
+        self.benchmarks_dir = self.repo_root / "benchmarks" / "coding"
+        self.results_dir = self.benchmarks_dir / "results"
+        self.tmp_dir = Path(tempfile.gettempdir()) / "benchmark-tasks"
+        self.config = self.load_config()
+    
+    def load_config(self) -> Dict:
+        """Load benchmark configuration."""
+        config_file = self.benchmarks_dir / "config.json"
+        if config_file.exists():
+            with open(config_file) as f:
+                return json.load(f)
+        return {
+            "tasks": [],
+            "ai_base_url": os.getenv("AI_BASE_URL", "http://localhost:8000/v1"),
+            "ai_model": os.getenv("AI_MODEL", "Qwen3-Coder-30B"),
+            "ai_api_key": os.getenv("AI_API_KEY", "test-key"),
+        }
+    
+    def list_tasks(self) -> List[Dict]:
+        """List all benchmark tasks."""
+        tasks = []
+        for task_file in sorted(self.benchmarks_dir.glob("task-*.md")):
+            task_id = task_file.stem
+            tasks.append({
+                "id": task_id,
+                "path": task_file,
+                "name": self.get_task_title(task_file),
+            })
+        return tasks
+    
+    def get_task_title(self, task_file: Path) -> str:
+        """Extract task title from markdown file."""
+        with open(task_file) as f:
+            for line in f:
+                if line.startswith("# Task "):
+                    return line.replace("# Task ", "").strip()
+        return task_file.stem
+    
+    def init(self) -> bool:
+        """Initialize benchmark directories."""
+        try:
+            self.results_dir.mkdir(parents=True, exist_ok=True)
+            self.tmp_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"✓ Initialized benchmark directories")
+            logger.info(f"  Results: {self.results_dir}")
+            logger.info(f"  Temp: {self.tmp_dir}")
+            return True
+        except Exception as e:
+            logger.error(f"✗ Failed to initialize: {e}")
+            return False
+    
+    def create_task_workspace(self, task_id: str) -> Optional[Path]:
+        """Create isolated workspace for task execution."""
+        try:
+            workspace = self.tmp_dir / f"task-{task_id}-{datetime.now().isoformat()}"
+            workspace.mkdir(parents=True, exist_ok=True)
+            
+            # Copy necessary files but not whole repo (too large)
+            # This is where you'd clone/copy the repo to evaluate
+            logger.info(f"✓ Created workspace: {workspace}")
+            return workspace
+        except Exception as e:
+            logger.error(f"✗ Failed to create workspace: {e}")
+            return None
+    
+    def run_task_planning(self, task_id: str) -> Dict:
+        """Run task in planning mode (no implementation)."""
+        logger.info(f"Running {task_id} in PLANNING mode")
+        
+        result = {
+            "task_id": task_id,
+            "mode": "planning",
+            "timestamp": datetime.now().isoformat(),
+            "status": "pending",
+            "prompt": None,
+            "response": None,
+            "metrics": {},
+        }
+        
+        # Load task description
+        task_file = self.benchmarks_dir / f"{task_id}.md"
+        if not task_file.exists():
+            logger.error(f"Task file not found: {task_file}")
+            result["status"] = "failed"
+            result["error"] = "Task file not found"
+            return result
+        
+        with open(task_file) as f:
+            task_content = f.read()
+        
+        # Build prompt for planning mode
+        prompt = self._build_planning_prompt(task_content)
+        result["prompt"] = prompt
+        
+        # Call AI endpoint
+        try:
+            response = self._call_ai_endpoint(prompt)
+            result["response"] = response
+            result["status"] = "completed"
+            logger.info(f"✓ {task_id} planning completed")
+        except Exception as e:
+            result["status"] = "failed"
+            result["error"] = str(e)
+            logger.error(f"✗ {task_id} planning failed: {e}")
+        
+        return result
+    
+    def run_task_implementation(self, task_id: str) -> Dict:
+        """Run task in implementation mode."""
+        logger.info(f"Running {task_id} in IMPLEMENTATION mode")
+        
+        result = {
+            "task_id": task_id,
+            "mode": "implementation",
+            "timestamp": datetime.now().isoformat(),
+            "status": "pending",
+            "prompt": None,
+            "response": None,
+            "metrics": {},
+            "automated_tests": {},
+        }
+        
+        # Load task description
+        task_file = self.benchmarks_dir / f"{task_id}.md"
+        if not task_file.exists():
+            logger.error(f"Task file not found: {task_file}")
+            result["status"] = "failed"
+            result["error"] = "Task file not found"
+            return result
+        
+        with open(task_file) as f:
+            task_content = f.read()
+        
+        # Create isolated workspace
+        workspace = self.create_task_workspace(task_id)
+        if not workspace:
+            result["status"] = "failed"
+            result["error"] = "Failed to create workspace"
+            return result
+        
+        result["workspace"] = str(workspace)
+        
+        # Build implementation prompt
+        prompt = self._build_implementation_prompt(task_content, workspace)
+        result["prompt"] = prompt
+        
+        # Call AI endpoint
+        try:
+            response = self._call_ai_endpoint(prompt)
+            result["response"] = response
+            
+            # Run automated tests if applicable
+            tests = self._run_automated_tests(workspace)
+            result["automated_tests"] = tests
+            
+            result["status"] = "completed"
+            logger.info(f"✓ {task_id} implementation completed")
+        except Exception as e:
+            result["status"] = "failed"
+            result["error"] = str(e)
+            logger.error(f"✗ {task_id} implementation failed: {e}")
+        
+        return result
+    
+    def _build_planning_prompt(self, task_content: str) -> str:
+        """Build prompt for planning mode."""
+        return f"""
+You are an expert code architect evaluating a repository modification task.
+
+TASK DESCRIPTION:
+{task_content}
+
+Your goal: Produce a detailed implementation plan WITHOUT modifying any files.
+
+Please provide:
+1. Architecture analysis - how the codebase is organized
+2. Files to modify - exactly which files need changes
+3. Dependencies - what else depends on these files
+4. Implementation approach - step-by-step approach
+5. Potential issues - what could go wrong
+6. Testing strategy - how to verify correctness
+
+Do not implement the changes. Only plan them.
+"""
+    
+    def _build_implementation_prompt(self, task_content: str, workspace: Path) -> str:
+        """Build prompt for implementation mode."""
+        return f"""
+You are an expert programmer implementing a code change.
+
+TASK DESCRIPTION:
+{task_content}
+
+WORKSPACE: {workspace}
+
+Your goal: Implement the requested change completely and correctly.
+
+Please:
+1. Analyze the repository structure
+2. Implement all required changes
+3. Run tests to verify correctness
+4. Ensure no unrelated files are modified
+5. Provide a summary of changes
+
+Follow all existing code conventions and patterns in the repository.
+"""
+    
+    def _call_ai_endpoint(self, prompt: str) -> str:
+        """Call AI endpoint with prompt."""
+        try:
+            import subprocess
+            result = subprocess.run(
+                [
+                    "bash", "-c",
+                    f"AI_BASE_URL={self.config['ai_base_url']} "
+                    f"AI_MODEL={self.config['ai_model']} "
+                    f"AI_API_KEY={self.config['ai_api_key']} "
+                    f"./scripts/ai-test --json --verbose {repr(prompt)}"
+                ],
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout
+            )
+            
+            if result.returncode != 0:
+                raise Exception(f"AI endpoint failed: {result.stderr}")
+            
+            data = json.loads(result.stdout)
+            return data.get("results", [{}])[0].get("response", "")
+        except Exception as e:
+            logger.error(f"AI call failed: {e}")
+            raise
+    
+    def _run_automated_tests(self, workspace: Path) -> Dict:
+        """Run automated tests in workspace."""
+        tests = {
+            "pytest": {"pass": False, "output": ""},
+            "mypy": {"pass": False, "output": ""},
+            "pylint": {"pass": False, "output": ""},
+        }
+        
+        # This would actually run tests in the workspace
+        # For now, return empty results
+        
+        return tests
+    
+    def save_result(self, result: Dict) -> Path:
+        """Save task result to disk."""
+        self.results_dir.mkdir(parents=True, exist_ok=True)
+        
+        result_file = (
+            self.results_dir /
+            f"{result['task_id']}_{result['mode']}_{datetime.now().isoformat()}.json"
+        )
+        
+        with open(result_file, "w") as f:
+            json.dump(result, f, indent=2)
+        
+        logger.info(f"✓ Saved result: {result_file}")
+        return result_file
+    
+    def load_results(self, task_id: Optional[str] = None) -> List[Dict]:
+        """Load results from disk."""
+        results = []
+        
+        for result_file in self.results_dir.glob("*.json"):
+            if task_id and not result_file.name.startswith(task_id):
+                continue
+            
+            with open(result_file) as f:
+                results.append(json.load(f))
+        
+        return results
+    
+    def show_status(self) -> None:
+        """Show benchmark status."""
+        tasks = self.list_tasks()
+        results = self.load_results()
+        
+        print("\nBenchmark Status")
+        print("=" * 60)
+        
+        for task in tasks:
+            task_results = [r for r in results if r["task_id"] == task["id"]]
+            status = "pending" if not task_results else task_results[-1]["status"]
+            
+            print(f"{task['id']}: {task['name']}")
+            print(f"  Status: {status}")
+            
+            if task_results:
+                latest = task_results[-1]
+                print(f"  Mode: {latest['mode']}")
+                print(f"  Time: {latest['timestamp']}")
+        
+        print("=" * 60)
+    
+    def clean(self, task_id: Optional[str] = None) -> None:
+        """Clean results and workspace."""
+        if task_id:
+            # Clean specific task
+            for result_file in self.results_dir.glob(f"{task_id}_*.json"):
+                result_file.unlink()
+                logger.info(f"Deleted {result_file}")
+            
+            for workspace in self.tmp_dir.glob(f"task-{task_id}-*"):
+                shutil.rmtree(workspace)
+                logger.info(f"Deleted {workspace}")
+        else:
+            # Clean all
+            shutil.rmtree(self.results_dir, ignore_errors=True)
+            shutil.rmtree(self.tmp_dir, ignore_errors=True)
+            logger.info("Cleaned all results and workspaces")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Benchmark task manager with isolation",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", help="Command")
+    
+    # init command
+    subparsers.add_parser("init", help="Initialize benchmark directories")
+    
+    # run command
+    run_parser = subparsers.add_parser("run", help="Run benchmark task")
+    run_parser.add_argument("--task", help="Task ID (e.g., 001)")
+    run_parser.add_argument("--mode", choices=["planning", "implementation"], default="planning")
+    run_parser.add_argument("--all", action="store_true", help="Run all tasks")
+    
+    # status command
+    subparsers.add_parser("status", help="Show benchmark status")
+    
+    # clean command
+    clean_parser = subparsers.add_parser("clean", help="Clean results")
+    clean_parser.add_argument("--task", help="Clean specific task")
+    
+    args = parser.parse_args()
+    
+    manager = BenchmarkManager(Path.cwd())
+    
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+    
+    if args.command == "init":
+        if manager.init():
+            sys.exit(0)
+        else:
+            sys.exit(1)
+    
+    elif args.command == "run":
+        if args.all:
+            for task in manager.list_tasks():
+                result = manager.run_task_planning(task["id"])
+                manager.save_result(result)
+                if args.mode == "implementation":
+                    result = manager.run_task_implementation(task["id"])
+                    manager.save_result(result)
+        elif args.task:
+            if args.mode == "planning":
+                result = manager.run_task_planning(args.task)
+            else:
+                result = manager.run_task_implementation(args.task)
+            manager.save_result(result)
+        else:
+            print("Error: --task or --all required")
+            sys.exit(1)
+    
+    elif args.command == "status":
+        manager.show_status()
+    
+    elif args.command == "clean":
+        manager.clean(args.task)
+
+
+if __name__ == "__main__":
+    main()
