@@ -2,11 +2,11 @@
  * PR7: Git state tracker - tracks git repository state
  */
 
-import { execSync, exec } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import { promisify } from "util";
 import type { GitState } from "../types/index.js";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Options for git state tracking
@@ -22,16 +22,26 @@ const DEFAULT_OPTIONS: GitStateOptions = {
 };
 
 /**
- * Execute a git command and return the output
+ * Validate that a string is a safe git ref (commit SHA, branch name, or HEAD~N)
+ * Prevents shell injection by only allowing safe characters
+ */
+function isValidGitRef(ref: string): boolean {
+  // Allow: alphanumeric, /, -, _, ., ~, ^, @
+  // Disallow: shell metacharacters like ;, |, &, $, `, etc.
+  return /^[a-zA-Z0-9/_.\-~^@]+$/.test(ref);
+}
+
+/**
+ * Execute a git command and return the output (safe version using execFile)
  */
 async function gitCommand(
   cwd: string,
-  args: string,
+  args: string[],
   options: GitStateOptions = {}
 ): Promise<string> {
   const timeout = options.timeout ?? DEFAULT_OPTIONS.timeout;
   try {
-    const { stdout } = await execAsync(`git ${args}`, {
+    const { stdout } = await execFileAsync("git", args, {
       cwd,
       timeout,
       encoding: "utf-8",
@@ -43,11 +53,11 @@ async function gitCommand(
 }
 
 /**
- * Execute a git command synchronously
+ * Execute a git command synchronously (safe version using execFileSync)
  */
-function gitCommandSync(cwd: string, args: string): string {
+function gitCommandSync(cwd: string, args: string[]): string {
   try {
-    return execSync(`git ${args}`, {
+    return execFileSync("git", args, {
       cwd,
       encoding: "utf-8",
       timeout: 5000,
@@ -67,19 +77,19 @@ export async function getGitState(
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
   // Check if this is a git repository
-  const isGitRepo = gitCommandSync(repoPath, "rev-parse --is-inside-work-tree");
+  const isGitRepo = gitCommandSync(repoPath, ["rev-parse", "--is-inside-work-tree"]);
   if (isGitRepo !== "true") {
     return null;
   }
 
   // Get HEAD
-  const head = await gitCommand(repoPath, "rev-parse HEAD", opts);
+  const head = await gitCommand(repoPath, ["rev-parse", "HEAD"], opts);
   if (!head) {
     // Empty repository
     return {
       head: "",
-      branch: await gitCommand(repoPath, "branch --show-current", opts) || "main",
-      remote: await gitCommand(repoPath, "config --get remote.origin.url", opts) || undefined,
+      branch: await gitCommand(repoPath, ["branch", "--show-current"], opts) || "main",
+      remote: await gitCommand(repoPath, ["config", "--get", "remote.origin.url"], opts) || undefined,
       commitSha: "",
       isDirty: false,
       changedFiles: [],
@@ -90,13 +100,13 @@ export async function getGitState(
   }
 
   // Get current branch
-  const branch = await gitCommand(repoPath, "branch --show-current", opts);
+  const branch = await gitCommand(repoPath, ["branch", "--show-current"], opts);
 
   // Get remote URL
-  const remote = await gitCommand(repoPath, "config --get remote.origin.url", opts);
+  const remote = await gitCommand(repoPath, ["config", "--get", "remote.origin.url"], opts);
 
   // Get dirty state
-  const statusOutput = await gitCommand(repoPath, "status --porcelain", opts);
+  const statusOutput = await gitCommand(repoPath, ["status", "--porcelain"], opts);
   const isDirty = statusOutput.length > 0;
 
   // Parse status output
@@ -154,7 +164,7 @@ export async function getGitState(
  * Get the current commit SHA
  */
 export async function getCurrentCommit(repoPath: string): Promise<string | null> {
-  const sha = await gitCommand(repoPath, "rev-parse HEAD");
+  const sha = await gitCommand(repoPath, ["rev-parse", "HEAD"]);
   return sha || null;
 }
 
@@ -162,7 +172,7 @@ export async function getCurrentCommit(repoPath: string): Promise<string | null>
  * Get the current branch name
  */
 export async function getCurrentBranch(repoPath: string): Promise<string | null> {
-  const branch = await gitCommand(repoPath, "branch --show-current");
+  const branch = await gitCommand(repoPath, ["branch", "--show-current"]);
   return branch || null;
 }
 
@@ -170,7 +180,7 @@ export async function getCurrentBranch(repoPath: string): Promise<string | null>
  * Check if the repository is dirty (has uncommitted changes)
  */
 export async function isDirty(repoPath: string): Promise<boolean> {
-  const status = await gitCommand(repoPath, "status --porcelain");
+  const status = await gitCommand(repoPath, ["status", "--porcelain"]);
   return status.length > 0;
 }
 
@@ -182,9 +192,14 @@ export async function getDiff(
   fromCommit: string,
   toCommit: string = "HEAD"
 ): Promise<string[]> {
+  // Validate git refs to prevent command injection
+  if (!isValidGitRef(fromCommit) || !isValidGitRef(toCommit)) {
+    return [];
+  }
+  
   const diff = await gitCommand(
     repoPath,
-    `diff --name-only ${fromCommit} ${toCommit}`
+    ["diff", "--name-only", fromCommit, toCommit]
   );
   return diff.split("\n").filter((line) => line.length > 0);
 }
@@ -196,14 +211,19 @@ export async function getChangedFilesSinceCommit(
   repoPath: string,
   sinceCommit: string
 ): Promise<string[]> {
+  // Validate git ref to prevent command injection
+  if (!isValidGitRef(sinceCommit)) {
+    return [];
+  }
+  
   const diff = await gitCommand(
     repoPath,
-    `diff --name-only ${sinceCommit} HEAD`
+    ["diff", "--name-only", sinceCommit, "HEAD"]
   );
   const committed = diff.split("\n").filter((line) => line.length > 0);
 
   // Also get uncommitted changes
-  const status = await gitCommand(repoPath, "status --porcelain");
+  const status = await gitCommand(repoPath, ["status", "--porcelain"]);
   const uncommitted = status
     .split("\n")
     .filter((line) => line.length >= 3)
@@ -220,7 +240,7 @@ export async function getChangedFilesSinceCommit(
  * Get the remote URL for the repository
  */
 export async function getRemoteUrl(repoPath: string): Promise<string | null> {
-  const remote = await gitCommand(repoPath, "config --get remote.origin.url");
+  const remote = await gitCommand(repoPath, ["config", "--get", "remote.origin.url"]);
   return remote || null;
 }
 
@@ -231,7 +251,7 @@ export async function getDefaultBranch(repoPath: string): Promise<string> {
   // Try to get from remote HEAD
   const remoteHead = await gitCommand(
     repoPath,
-    "symbolic-ref refs/remotes/origin/HEAD"
+    ["symbolic-ref", "refs/remotes/origin/HEAD"]
   );
   if (remoteHead) {
     const match = remoteHead.match(/refs\/remotes\/origin\/(.+)/);
@@ -241,7 +261,7 @@ export async function getDefaultBranch(repoPath: string): Promise<string> {
   }
 
   // Fall back to common defaults
-  const branches = await gitCommand(repoPath, "branch -a");
+  const branches = await gitCommand(repoPath, ["branch", "-a"]);
   if (branches.includes("main")) {
     return "main";
   }
