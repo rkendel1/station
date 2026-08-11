@@ -1,12 +1,12 @@
 {
-  "name": "@station/context",
+  "name": "@station/ai",
   "version": "0.1.0",
-  "description": "Personal Engineering Context Fabric - Persistent local-first engineering knowledge system",
+  "description": "AI Execution Control Plane for Personal Cloud Development Environment",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "dev": "dist/cli/index.js"
+    "codex-ai": "dist/cli/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -18,16 +18,13 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@electric-sql/pglite": "^0.1.4",
+    "@station/context": "file:../context",
     "chalk": "^5.3.0",
     "commander": "^11.1.0",
     "dotenv": "^16.3.1",
-    "js-yaml": "^4.3.1",
-    "simple-git": "^3.20.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.5",
     "@types/node": "^20.10.0",
     "@typescript-eslint/eslint-plugin": "^6.13.2",
     "@typescript-eslint/parser": "^6.13.2",

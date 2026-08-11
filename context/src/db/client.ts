@@ -25,7 +25,7 @@ export function getDBPath(): string {
   }
 
   const homeDir = process.env.HOME || process.env.USERPROFILE || ".";
-  return path.join(homeDir, ".dev-ai", "context", "context.db");
+  return `${homeDir}/.dev-ai/context/context.db`;
 }
 
 /**
@@ -45,10 +45,10 @@ export function ensureDBDirectory(): void {
  */
 export async function getSchemaVersion(db: Database): Promise<number> {
   try {
-    const result = await db.query<{ user_version: number }>(
-      "PRAGMA user_version"
+    const result = await db.query<{ version: number }>(
+      "SELECT MAX(version) as version FROM schema_version"
     );
-    return result[0]?.user_version || 0;
+    return result[0]?.version || 0;
   } catch {
     return 0;
   }
@@ -61,7 +61,10 @@ export async function setSchemaVersion(
   db: Database,
   version: number
 ): Promise<void> {
-  await db.run(`PRAGMA user_version = ${version}`);
+  await db.run(
+    "INSERT INTO schema_version (version) VALUES (?)",
+    [version]
+  );
 }
 
 /**
@@ -105,7 +108,8 @@ export async function initializeDatabase(db: Database): Promise<void> {
 }
 
 /**
- * Get database instance (singleton)
+ * Get or create the default ContextStore instance
+ * Currently uses PGlite as the default backend
  */
 export async function getDatabase(): Promise<Database> {
   if (dbInstance) {
@@ -114,8 +118,8 @@ export async function getDatabase(): Promise<Database> {
 
   // Dynamically import based on availability
   try {
-    const { createSQLiteDatabase } = await import("./sqlite.js");
-    dbInstance = await createSQLiteDatabase();
+    const { createPGliteDatabase } = await import("./sqlite.js");
+    dbInstance = await createPGliteDatabase();
     await initializeDatabase(dbInstance);
     return dbInstance;
   } catch (error) {
