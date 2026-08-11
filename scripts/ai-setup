@@ -1,0 +1,193 @@
+#!/bin/bash
+# ai-setup.sh - Configure AI provider credentials
+# The AI Router automatically selects and escalates between models based on task complexity
+# Usage: ./scripts/ai-setup [command]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+ENV_FILE="$PROJECT_ROOT/.env"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Help message
+show_help() {
+  cat <<EOF
+${BLUE}AI Provider Configuration${NC}
+
+The AI Router automatically:
+  • Classifies task complexity (simple/moderate/complex)
+  • Selects cheapest model that can handle it
+  • Escalates to better models if needed
+  • Respects cost policy limits
+
+Usage: ai-setup [command]
+
+Commands:
+  ${GREEN}qwen${NC}                  - Set RunPod Qwen credentials
+  ${GREEN}openai${NC}                - Set OpenAI credentials
+  ${GREEN}set-primary${NC} [qwen|openai] - Set primary model to try first
+  ${GREEN}status${NC}                - Show current configuration
+  ${GREEN}help${NC}                  - Show this help message
+
+Examples:
+  ./scripts/ai-setup openai         # Set OpenAI credentials
+  ./scripts/ai-setup qwen           # Set RunPod Qwen credentials
+  ./scripts/ai-setup set-primary openai
+  ./scripts/ai-setup status         # Check what's configured
+
+EOF
+}
+
+# Show current status
+show_status() {
+  echo -e "${BLUE}📊 AI Configuration Status${NC}\n"
+  
+  if [ ! -f "$ENV_FILE" ]; then
+    echo -e "${RED}✗ .env file not found${NC}"
+    return 1
+  fi
+  
+  local provider=$(grep "^AI_PROVIDER=" "$ENV_FILE" | cut -d= -f2)
+  local model=$(grep "^AI_MODEL=" "$ENV_FILE" | cut -d= -f2)
+  
+  echo "Primary Provider: ${YELLOW}${provider:-<not set>}${NC}"
+  echo "Primary Model: ${YELLOW}${model:-<not set>}${NC}"
+  echo ""
+  
+  # Check which providers are configured
+  echo -e "${BLUE}Available Providers:${NC}"
+  
+  local qwen_key=$(grep "^QWEN_API_KEY=" "$ENV_FILE" | cut -d= -f2 2>/dev/null || echo "")
+  if [ -n "$qwen_key" ]; then
+    echo -e "  ${GREEN}✓ Qwen3-Coder-30B${NC} (RunPod) - configured"
+  else
+    echo -e "  ${YELLOW}○ Qwen3-Coder-30B${NC} (RunPod) - not configured"
+  fi
+  
+  local openai_key=$(grep "^OPENAI_API_KEY=" "$ENV_FILE" | cut -d= -f2 2>/dev/null || echo "")
+  if [ -n "$openai_key" ]; then
+    echo -e "  ${GREEN}✓ GPT-4${NC} (OpenAI) - configured"
+  else
+    echo -e "  ${YELLOW}○ GPT-4${NC} (OpenAI) - not configured"
+  fi
+  
+  echo ""
+  echo -e "${BLUE}How it works:${NC}"
+  echo "  • Simple tasks → use cheapest model (Qwen)"
+  echo "  • Complex tasks → automatically escalate to GPT-4"
+  echo "  • Set primary to control which one to try first"
+  echo ""
+}
+
+# Setup RunPod Qwen
+setup_qwen() {
+  echo -e "${BLUE}🚀 Setting Up RunPod Qwen Credentials${NC}\n"
+  
+  echo "Get credentials from: ${YELLOW}https://www.runpod.io/console/pods${NC}"
+  echo ""
+  
+  read -p "Enter RunPod Pod ID (e.g., abc123def456): " pod_id
+  read -p "Enter RunPod Worker Key (runpod_...): " worker_key
+  
+  if [ -z "$pod_id" ] || [ -z "$worker_key" ]; then
+    echo -e "${RED}✗ Pod ID and Worker Key are required${NC}"
+    return 1
+  fi
+  
+  local base_url="https://${pod_id}.runpod.io/v1"
+  
+  sed -i "s|^QWEN_BASE_URL=.*|QWEN_BASE_URL=${base_url}|" "$ENV_FILE"
+  sed -i "s|^QWEN_API_KEY=.*|QWEN_API_KEY=${worker_key}|" "$ENV_FILE"
+  
+  echo -e "${GREEN}✓ Qwen credentials saved${NC}\n"
+}
+
+# Setup OpenAI
+setup_openai() {
+  echo -e "${BLUE}🚀 Setting Up OpenAI Credentials${NC}\n"
+  
+  echo "Get API key from: ${YELLOW}https://platform.openai.com/api-keys${NC}"
+  echo ""
+  
+  read -p "Enter OpenAI API Key (sk-...): " api_key
+  
+  if [ -z "$api_key" ]; then
+    echo -e "${RED}✗ API Key is required${NC}"
+    return 1
+  fi
+  
+  sed -i "s|^OPENAI_API_KEY=.*|OPENAI_API_KEY=${api_key}|" "$ENV_FILE"
+  
+  echo -e "${GREEN}✓ OpenAI credentials saved${NC}\n"
+}
+
+# Set primary provider
+set_primary() {
+  local provider="$1"
+  
+  if [ "$provider" = "qwen" ]; then
+    sed -i "s|^AI_PROVIDER=.*|AI_PROVIDER=openai-compatible|" "$ENV_FILE"
+    sed -i "s|^AI_MODEL=.*|AI_MODEL=Qwen3-Coder-30B|" "$ENV_FILE"
+    
+    # Copy qwen creds to active
+    local url=$(grep "^QWEN_BASE_URL=" "$ENV_FILE" | cut -d= -f2)
+    local key=$(grep "^QWEN_API_KEY=" "$ENV_FILE" | cut -d= -f2)
+    sed -i "s|^AI_BASE_URL=.*|AI_BASE_URL=${url}|" "$ENV_FILE"
+    sed -i "s|^AI_API_KEY=.*|AI_API_KEY=${key}|" "$ENV_FILE"
+    
+    echo -e "${GREEN}✓ Primary set to Qwen (cheap tasks start here)${NC}\n"
+  elif [ "$provider" = "openai" ]; then
+    sed -i "s|^AI_PROVIDER=.*|AI_PROVIDER=openai|" "$ENV_FILE"
+    sed -i "s|^AI_MODEL=.*|AI_MODEL=gpt-4-turbo-preview|" "$ENV_FILE"
+    
+    # Copy openai creds to active
+    local key=$(grep "^OPENAI_API_KEY=" "$ENV_FILE" | cut -d= -f2)
+    sed -i "s|^AI_BASE_URL=.*|AI_BASE_URL=https://api.openai.com/v1|" "$ENV_FILE"
+    sed -i "s|^AI_API_KEY=.*|AI_API_KEY=${key}|" "$ENV_FILE"
+    
+    echo -e "${GREEN}✓ Primary set to OpenAI (quality-focused)${NC}\n"
+  else
+    echo -e "${RED}✗ Unknown provider: $provider${NC}"
+    return 1
+  fi
+}
+
+# Main
+main() {
+  local command="${1:-help}"
+  
+  case "$command" in
+    qwen)
+      setup_qwen
+      show_status
+      ;;
+    openai)
+      setup_openai
+      show_status
+      ;;
+    set-primary)
+      set_primary "${2:-help}"
+      show_status
+      ;;
+    status)
+      show_status
+      ;;
+    help|--help|-h|"")
+      show_help
+      ;;
+    *)
+      echo -e "${RED}✗ Unknown command: $command${NC}"
+      show_help
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
