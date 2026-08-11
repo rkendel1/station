@@ -8,6 +8,7 @@ import { initCommand } from "./commands/init.js";
 import { statusCommand } from "./commands/status.js";
 import { indexCommand } from "./commands/index.js";
 import { explainCommand } from "./commands/explain.js";
+import { searchCommand } from "./commands/search.js";
 
 const program = new Command();
 
@@ -20,6 +21,7 @@ program.addCommand(initCommand);
 program.addCommand(statusCommand);
 program.addCommand(indexCommand);
 program.addCommand(explainCommand);
+program.addCommand(searchCommand);
 
 program.parse(process.argv);
 
