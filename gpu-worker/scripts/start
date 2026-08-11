@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Start the GPU worker
+# Loads vLLM model and exposes OpenAI-compatible API
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKER_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Load environment
+if [[ -f "$WORKER_DIR/.env" ]]; then
+    # shellcheck disable=SC1091
+    source "$WORKER_DIR/.env"
+fi
+
+# Set defaults
+MODEL_NAME="${MODEL_NAME:-Qwen3-Coder-30B}"
+GPU_TYPE="${GPU_TYPE:-h100}"
+GPU_MEMORY_REQUIREMENT="${GPU_MEMORY_REQUIREMENT:-80}"
+CONTEXT_LENGTH="${CONTEXT_LENGTH:-4096}"
+MAX_CONCURRENCY="${MAX_CONCURRENCY:-4}"
+IDLE_TIMEOUT_MINUTES="${IDLE_TIMEOUT_MINUTES:-30}"
+API_KEY="${API_KEY:-}"
+PROVIDER="${PROVIDER:-runpod}"
+PORT="${PORT:-8000}"
+VLLM_PORT="${VLLM_PORT:-8001}"
+
+export MODEL_NAME
+export GPU_TYPE
+export GPU_MEMORY_REQUIREMENT
+export CONTEXT_LENGTH
+export MAX_CONCURRENCY
+export IDLE_TIMEOUT_MINUTES
+export API_KEY
+export PROVIDER
+export PORT
+export VLLM_PORT
+
+echo "Starting GPU Worker..."
+echo "Model: $MODEL_NAME"
+echo "GPU: $GPU_TYPE ($GPU_MEMORY_REQUIREMENT GB)"
+echo "Context length: $CONTEXT_LENGTH"
+echo "Port: $PORT"
+echo "Provider: $PROVIDER"
+
+# Start FastAPI server with uvicorn
+cd "$WORKER_DIR"
+python3 worker.py

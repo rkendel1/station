@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Health check for GPU worker
+# Used by Docker HEALTHCHECK and external monitoring
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKER_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Load environment
+if [[ -f "$WORKER_DIR/.env" ]]; then
+    # shellcheck disable=SC1091
+    source "$WORKER_DIR/.env"
+fi
+
+PORT="${PORT:-8000}"
+MAX_RETRIES=3
+RETRY_DELAY=2
+
+# Try to reach health endpoint
+for ((i=1; i<=MAX_RETRIES; i++)); do
+    if curl -sf "http://localhost:$PORT/health" > /dev/null 2>&1; then
+        exit 0
+    fi
+    
+    if [[ $i -lt $MAX_RETRIES ]]; then
+        sleep $RETRY_DELAY
+    fi
+done
+
+exit 1
