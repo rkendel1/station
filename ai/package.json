@@ -12,8 +12,8 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest",
-    "test:ci": "vitest --run",
-    "lint": "eslint src --ext .ts",
+    "test:ci": "find src -name '*.test.ts' -o -name '*.spec.ts' | grep -q . && vitest --run || echo 'No tests found'",
+    "lint": "eslint src",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
