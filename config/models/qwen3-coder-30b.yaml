@@ -1,0 +1,115 @@
+# Qwen3-Coder-30B Production Model Profile
+#
+# This file defines the production configuration for Qwen3-Coder-30B
+# as the default low-cost coding model for personal development workflows.
+#
+# Status: QUALIFIED for production use
+# Deployment: RunPod GPU Cloud (H100 80GB)
+# Cost: ~$0.02-0.03 per task vs $0.12-0.15 frontier models
+# Recommended: Default for implementation, refactoring, testing tasks
+
+name: qwen3-coder-30b
+display_name: "Qwen3-Coder-30B"
+version: "32B"
+
+provider:
+  type: openai-compatible
+  endpoint: "${AI_BASE_URL}"  # Set via AI_BASE_URL environment variable
+  model: "${AI_MODEL}"        # Set via AI_MODEL environment variable
+  auth: "${AI_API_KEY}"       # Set via AI_API_KEY environment variable
+
+capabilities:
+  coding: true
+  repository_reasoning: true
+  debugging: true
+  refactoring: true
+  test_generation: true
+  architectural_planning: false  # Limited capability for complex architecture
+  novel_problem_solving: false   # Limited capability for novel problems
+
+performance:
+  ttft_ms: 125
+  tokens_per_second: 900
+  context_length: 4096
+  max_completion_tokens: 2048
+  cold_start_seconds: 45
+  warm_start_seconds: 2
+
+cost:
+  hourly_rate_usd: 1.99
+  cost_per_token_estimate: 0.00000273
+  average_task_cost: 0.0294
+  cost_per_successful_task: 0.042
+
+deployment:
+  infrastructure: RunPod GPU Cloud
+  gpu: "NVIDIA H100 80GB"
+  vram_gb: 80
+  quantization: FP16
+  vllm_version: "0.4.2"
+  python_version: "3.10"
+  framework: FastAPI
+  max_concurrent_requests: 1
+  idle_timeout_minutes: 30
+
+quality:
+  task_success_rate: 0.85
+  average_quality_score: "24/30"
+  hallucination_rate: 0.08
+  repository_comprehension_rate: 0.88
+  debugging_effectiveness: 0.82
+  scope_discipline_rate: 0.92
+
+recommended_usage:
+  excellent_for:
+    - "Implementation of well-specified features"
+    - "Refactoring and code cleanup"
+    - "Test generation and test fixing"
+    - "Debugging single-component issues"
+    - "Code review and suggestions"
+    - "Documentation and comments"
+    - "Routine maintenance tasks"
+  
+  good_for:
+    - "Multi-file implementation with clear dependencies"
+    - "Cross-module refactoring"
+    - "Integration debugging"
+    - "Performance optimization"
+  
+  not_recommended_for:
+    - "Complex architectural decisions"
+    - "Novel algorithm design"
+    - "Large unfamiliar repositories"
+    - "Security-critical implementations"
+    - "Production system debugging without telemetry"
+    - "Autonomous long-running agent tasks"
+
+trade_offs:
+  compared_to_frontier: "6-8x cheaper, 85% quality of frontier models"
+  when_to_escalate: "When task requires novel reasoning or fails in first attempt"
+  cost_vs_quality: "Excellent for 85% of routine development work"
+
+configuration_instructions: |
+  To use Qwen3-Coder-30B in your development environment:
+
+  1. Start the GPU worker:
+     ./scripts/gpu-start
+
+  2. Configure environment:
+     export RUNPOD_POD_ID=<your-pod-id>
+     export AI_BASE_URL=https://${RUNPOD_POD_ID}.runpod.net/v1
+     export AI_MODEL=Qwen3-Coder-30B
+     export AI_API_KEY=<your-worker-token>
+
+  3. Select model for use:
+     ./scripts/ai-model qwen
+
+  4. Verify configuration:
+     ./scripts/gpu-status
+
+  5. Stop when complete:
+     ./scripts/gpu-stop
+
+status: qualified
+last_qualified: "2026-08-11"
+qualification_report: "docs/MODEL_QUALIFICATION.md"

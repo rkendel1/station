@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# GPU Worker Startup
+# Starts a new RunPod GPU worker with Qwen3-Coder-30B
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Configuration
+API_KEY="${RUNPOD_API_KEY:-}"
+GPU_TYPE="${GPU_TYPE:-h100}"
+CONTAINER_IMAGE="${CONTAINER_IMAGE:-qwen-gpu-worker:latest}"
+
+if [[ -z "$API_KEY" ]]; then
+    echo "Error: RUNPOD_API_KEY not set"
+    echo ""
+    echo "To start a GPU worker, set:"
+    echo "  export RUNPOD_API_KEY=your-api-key"
+    echo ""
+    echo "Then run: ./scripts/gpu-start"
+    exit 1
+fi
+
+echo "GPU Worker Startup"
+echo "=================="
+echo "GPU Type: $GPU_TYPE"
+echo "Container: $CONTAINER_IMAGE"
+echo ""
+
+# Call RunPod API to start a pod
+echo "Requesting pod from RunPod..."
+RESPONSE=$(curl -s -X POST "https://api.runpod.io/graphql" \
+    -H "Content-Type: application/json" \
+    -H "api_key: $API_KEY" \
+    -d '{
+        "query": "mutation { podRentInterruptible(input: { gpuCount: 1, volumeInGb: 50, containerDiskInGb: 10, minVcpuCount: 4, minMemoryInGb: 20, gpuTypeId: \"'"$GPU_TYPE"'\", name: \"qwen-coder-worker\", imageName: \"'"$CONTAINER_IMAGE"'\", startJupyter: false, ports: \"8000/http\" }) { id podHostId gpuCount containerDiskInGb machineId } }"
+    }' 2>/dev/null || echo "{}")
+
+if echo "$RESPONSE" | grep -q '"id"'; then
+    POD_ID=$(echo "$RESPONSE" | grep -o '"id":"[^"]*' | head -1 | cut -d'"' -f4)
+    POD_HOST=$(echo "$RESPONSE" | grep -o '"podHostId":"[^"]*' | cut -d'"' -f4)
+    GPU_COUNT=$(echo "$RESPONSE" | grep -o '"gpuCount":[0-9]*' | cut -d: -f2)
+    
+    echo "✓ Pod created successfully"
+    echo ""
+    echo "Pod Details:"
+    echo "  Pod ID: $POD_ID"
+    echo "  Host: $POD_HOST"
+    echo "  GPUs: $GPU_COUNT"
+    echo ""
+    echo "Pod will be ready in 30-60 seconds."
+    echo ""
+    echo "Configuration:"
+    echo "  export RUNPOD_POD_ID=$POD_ID"
+    echo "  export AI_BASE_URL=https://\$POD_ID.runpod.net/v1"
+    echo "  export AI_MODEL=Qwen3-Coder-30B"
+    echo "  export AI_API_KEY=<your-worker-token>"
+    echo ""
+    echo "Verify:"
+    echo "  ./scripts/gpu-status"
+    echo ""
+    echo "Stop:"
+    echo "  ./scripts/gpu-stop"
+    echo ""
+else
+    echo "✗ Failed to create pod"
+    if echo "$RESPONSE" | grep -q '"errors"'; then
+        echo "Error:"
+        echo "$RESPONSE" | grep -o '"message":"[^"]*' | cut -d'"' -f4 || true
+    fi
+    exit 1
+fi

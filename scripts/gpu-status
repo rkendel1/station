@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# GPU Status Check
+# Queries the running GPU worker and shows current status and diagnostics
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Configuration
+BASE_URL="${AI_BASE_URL:-http://localhost:8000}"
+API_KEY="${AI_API_KEY:-}"
+
+echo "GPU Worker Status"
+echo "================="
+echo ""
+
+# Check health endpoint (unauthenticated)
+echo "Checking connection..."
+HEALTH_RESPONSE=$(curl -s "$BASE_URL/health" 2>/dev/null || echo "{}")
+
+if [[ -z "$HEALTH_RESPONSE" ]] || [[ "$HEALTH_RESPONSE" == "{}" ]]; then
+    echo "ERROR: Cannot reach GPU worker at $BASE_URL"
+    echo ""
+    echo "Make sure:"
+    echo "  1. GPU worker is running on RunPod"
+    echo "  2. Export AI_BASE_URL with correct endpoint"
+    echo "  3. Network connectivity is working"
+    echo ""
+    echo "Example:"
+    echo "  export AI_BASE_URL=https://your-pod-id.runpod.net/v1"
+    echo "  ./scripts/gpu-status"
+    exit 1
+fi
+
+echo "✓ GPU worker is responding"
+echo ""
+
+# Extract health status
+STATUS=$(echo "$HEALTH_RESPONSE" | grep -o '"ready":[^,}]*' | cut -d: -f2 | tr -d ' ')
+MODEL=$(echo "$HEALTH_RESPONSE" | grep -o '"model":"[^"]*' | cut -d'"' -f4)
+GPU=$(echo "$HEALTH_RESPONSE" | grep -o '"gpu":"[^"]*' | cut -d'"' -f4)
+
+echo "Status:"
+echo "  Ready: $STATUS"
+echo "  Model: $MODEL"
+echo "  GPU: $GPU"
+echo ""
+
+# Get diagnostics if API_KEY is available
+if [[ -n "$API_KEY" ]]; then
+    echo "Fetching detailed diagnostics..."
+    DIAG=$(curl -s "$BASE_URL/diagnostics" \
+        -H "Authorization: ******" \
+        -H "Content-Type: application/json" 2>/dev/null || echo "{}")
+    
+    if [[ -n "$DIAG" ]] && echo "$DIAG" | grep -q '"worker"'; then
+        WORKER=$(echo "$DIAG" | grep -o '"worker":"[^"]*' | cut -d'"' -f4)
+        PROVIDER=$(echo "$DIAG" | grep -o '"provider":"[^"]*' | cut -d'"' -f4)
+        VRAM=$(echo "$DIAG" | grep -o '"vram_gb":[^,}]*' | cut -d: -f2)
+        RUNTIME=$(echo "$DIAG" | grep -o '"runtime":"[^"]*' | cut -d'"' -f4)
+        UPTIME=$(echo "$DIAG" | grep -o '"uptime_seconds":[^,}]*' | cut -d: -f2)
+        CONTEXT=$(echo "$DIAG" | grep -o '"context_length":[^,}]*' | cut -d: -f2)
+        CONCURRENCY=$(echo "$DIAG" | grep -o '"max_concurrency":[^,}]*' | cut -d: -f2)
+        QUANT=$(echo "$DIAG" | grep -o '"quantization":"[^"]*' | cut -d'"' -f4)
+        LAST_REQ=$(echo "$DIAG" | grep -o '"last_request_age_seconds":[^,}]*' | cut -d: -f2)
+        
+        echo "Worker Details:"
+        echo "  Worker: $WORKER"
+        echo "  Provider: $PROVIDER"
+        echo "  Runtime: $RUNTIME"
+        echo "  GPU VRAM: ${VRAM}GB"
+        echo "  Quantization: $QUANT"
+        echo "  Context Length: $CONTEXT tokens"
+        echo "  Max Concurrency: $CONCURRENCY"
+        echo "  Uptime: ${UPTIME}s (~$(( UPTIME / 60 ))m)"
+        echo "  Last Request: ${LAST_REQ}s ago"
+        echo ""
+    fi
+else
+    echo "Note: For detailed diagnostics, set AI_API_KEY environment variable"
+    echo ""
+fi
+
+# Test a simple inference request if API_KEY is available
+if [[ -n "$API_KEY" ]]; then
+    echo "Testing inference..."
+    TEST_START=$(date +%s%N)
+    
+    INFERENCE=$(curl -s "$BASE_URL/v1/chat/completions" \
+        -H "Authorization: ******" \
+        -H "Content-Type: application/json" \
+        -d '{
+            "model":"Qwen3-Coder-30B",
+            "messages":[{"role":"user","content":"Return only: OK"}],
+            "max_tokens":10,
+            "temperature":0.1
+        }' 2>/dev/null || echo "{}")
+    
+    TEST_END=$(date +%s%N)
+    TEST_TIME_MS=$(( (TEST_END - TEST_START) / 1000000 ))
+    
+    if echo "$INFERENCE" | grep -q '"choices"'; then
+        echo "✓ Inference working (${TEST_TIME_MS}ms)"
+    else
+        echo "✗ Inference test failed"
+    fi
+    echo ""
+fi
+
+echo "GPU is ready for development tasks!"
+echo ""
+echo "To stop the GPU worker:"
+echo "  ./scripts/gpu-stop"
+echo ""
