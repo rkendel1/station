@@ -1,10 +1,11 @@
 # Personal Cloud Development Environment
 
-A reusable development environment for projects running in GitHub Codespaces.
+A reusable development environment for local and GitHub Codespaces development.
 
 Includes:
 
-- reproducible development container
+- reproducible development container (Codespaces)
+- local development setup guide
 - Codex CLI
 - Node.js
 - Python
@@ -14,7 +15,31 @@ Includes:
 - standardized development commands
 - CI
 
-Open this repository in Codespaces and start building.
+## Quick Start
+
+### Local Development
+
+For local development on your machine, see [LOCAL_SETUP.md](LOCAL_SETUP.md) for detailed prerequisites and setup instructions.
+
+```bash
+git clone https://github.com/rkendel1/station.git
+cd station
+npm install
+cp .env.example .env.local
+make check
+make dev
+```
+
+### GitHub Codespaces
+
+For a fully managed environment without local setup:
+
+1. Click "Code" → "Codespaces" → "Create codespace on main" on the [GitHub repository](https://github.com/rkendel1/station)
+2. Wait for the container to build (2-3 minutes)
+3. Run `make check` to verify setup
+4. Start developing with `make dev`
+
+All dependencies and tools are pre-installed in the Codespaces container.
 
 ## Use as a template
 

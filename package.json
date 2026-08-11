@@ -1,0 +1,23 @@
+{
+  "name": "station",
+  "version": "0.1.0",
+  "description": "Personal Cloud Development Environment - Integrated AI Control Plane and Engineering Context System",
+  "private": true,
+  "workspaces": [
+    "ai",
+    "context"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace=context && npm run build --workspace=ai",
+    "dev": "npm run dev --workspaces",
+    "test": "npm run test:ci --workspaces",
+    "test:watch": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "typecheck": "npm run type-check --workspaces",
+    "clean": "npm run clean --workspaces"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  }
+}
