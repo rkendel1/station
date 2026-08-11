@@ -169,6 +169,14 @@ export async function findRepositories(
 
     visited.add(dir);
 
+    // Check if current directory is a git repo at depth 0
+    if (depth === 0) {
+      const repoInfo = await getRepositoryInfo(dir);
+      if (repoInfo) {
+        results.push(repoInfo);
+      }
+    }
+
     try {
       const files = fs.readdirSync(dir);
 
